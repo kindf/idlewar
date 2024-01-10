@@ -3,7 +3,8 @@ local skynet = require "skynet.manager"
 local function server_gameworld_init()
     skynet.error("server_gameworld_init")
     local watchdog = skynet.uniqueservice("watchdog")
-    local ok, err = pcall(skynet.call, watchdog, "lua", "start", {})
+    local agent_cnt = skynet.getenv("agent_cnt")
+    local ok, err = pcall(skynet.call, watchdog, "lua", "start", {agent_cnt = agent_cnt})
     if not ok then
         skynet.error("watchdog start error:", err)
         skynet.sleep(1)

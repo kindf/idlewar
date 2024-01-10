@@ -1,10 +1,12 @@
 local skynet = require "skynet.manager"
 require "skynet.manager"
 
+local gate
 local CMD = {}
 local SOCKET = {}
 
 local agent_cnt
+local login
 local all_agent_list = {}
 
 local agent_create_cnt = 0
@@ -41,11 +43,12 @@ function SOCKET.data(fd, msg)
 end
 
 function CMD.start(conf)
-    agent_cnt = skynet.getenv("agent_cnt")
+    agent_cnt = tonumber(conf.agent_cnt)
     assert(agent_cnt > 0, "invalid agent count")
     for i = 1, agent_cnt do
         skynet.fork(function()
-            abort_new_service("agent", 'idx-'..i..'-'..agent_create_cnt)
+            local agent = abort_new_service("agent", 'idx-'..i)
+            skynet.call(agent, "lua", "start", { gate = gate, watchdog = skynet.self(), idx = i})
         end)
     end
 end
@@ -53,12 +56,19 @@ end
 function CMD.SIGHUP()
 end
 
+function CMD.acc_login(...)
+    return 1
+end
+
 function CMD.add_agent(idx, agent)
     agent_create_cnt = agent_create_cnt + 1
     assert(all_agent_list[idx] == nil)
-    all_agent_list[idx] = {
-        agent = agent,
-    }
+    all_agent_list[idx] = agent
+    if agent_create_cnt == agent_cnt then
+        login = abort_new_service("login", skynet.self())
+        skynet.error("new login: ", login)
+    end
+    skynet.error("add agent. index: ", idx, " agent:", agent)
 end
 
 skynet.start(function()
@@ -72,5 +82,6 @@ skynet.start(function()
             skynet.ret(skynet.pack(f(subcmd, ...)))
         end
     end)
+    gate = abort_new_service("gate", "game")
 end)
 
