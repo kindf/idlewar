@@ -1,5 +1,7 @@
 local skynet = require "skynet.manager"
 require "skynet.manager"
+local socket = require "skynet.socket"
+local netpack = require "skynet.netpack"
 
 local gate
 local CMD = {}
@@ -8,8 +10,24 @@ local SOCKET = {}
 local agent_cnt
 local login
 local all_agent_list = {}
+local subid = 0
+local agent_idx = 1
+
+local handshake = {}
 
 local agent_create_cnt = 0
+
+local acc2agent = {}
+local uid2agent = {}
+
+local function get_next_agent()
+    local agent = all_agent_list[agent_idx]
+    agent_idx = agent_idx + 1
+    if agent_idx > agent_cnt then
+        agent_idx = agent_cnt
+    end
+    return agent
+end
 
 local function abort_new_service(name, ...)
     local ok, ret = pcall(skynet.newservice, name, ...)
@@ -23,10 +41,9 @@ local function abort_new_service(name, ...)
     return ret
 end
 
-local function auth_loginkey(fd, message)
-end
-
 function SOCKET.open(fd, addr)
+    skynet.send(gate, "lua", "accept", fd)
+    handshake[fd] = addr
 end
 
 function SOCKET.close(fd)
@@ -39,7 +56,26 @@ end
 function SOCKET.warning(fd, size)
 end
 
+local function do_auth(fd, msg)
+    local acc, _ = string.match(msg, "([^@]+)@(.+)")
+    local agent = get_next_agent()
+    skynet.send(agent, "lua", "agent_login", acc, fd)
+end
+
+local function auth(fd, addr, msg)
+    do_auth(fd, msg)
+    local result = "200 OK"
+    socket.write(fd, netpack.pack(result))
+end
+
 function SOCKET.data(fd, msg)
+    local addr = handshake[fd]
+    if addr then
+        auth(fd,addr,msg)
+        handshake[fd] = nil
+    else
+        -- TODO:
+    end
 end
 
 function CMD.start(conf)
@@ -51,13 +87,18 @@ function CMD.start(conf)
             skynet.call(agent, "lua", "start", { gate = gate, watchdog = skynet.self(), idx = i})
         end)
     end
+    skynet.call(gate, "lua", "open" , conf)
 end
 
 function CMD.SIGHUP()
 end
 
-function CMD.acc_login(...)
-    return 1
+function CMD.watchdog_login(acc, ts)
+    subid = subid + 1
+    return subid
+end
+
+function CMD.acc_logout(...)
 end
 
 function CMD.add_agent(idx, agent)
@@ -69,6 +110,30 @@ function CMD.add_agent(idx, agent)
         skynet.error("new login: ", login)
     end
     skynet.error("add agent. index: ", idx, " agent:", agent)
+end
+
+function CMD.agent_login_succ(acc, uid, fd, agent)
+    acc2agent[acc] = {
+        agent = agent,
+        fd = fd,
+        uid = uid,
+    }
+    uid2agent[uid] = {
+        agent = agent,
+        fd = fd,
+        acc = acc,
+    }
+end
+
+function CMD.send_agent_user(acc, uid, func_str, ...)
+    local agent
+    if acc then
+        agent = acc2agent[acc]
+    end
+    if uid then
+        agent = uid2agent[uid]
+    end
+    skynet.send(agent, "lua", func_str, acc, uid, ...)
 end
 
 skynet.start(function()
