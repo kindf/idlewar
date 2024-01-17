@@ -1,10 +1,15 @@
 local skynet = require "skynet"
+local user_namager = require "user.user_manager"
+-- local msg_handler = require "msg.handler"
 local agent_name = ...
 
 local watchdog
 local gate
 local agent_idx
-local uid = 0
+local original_uid = 0
+
+local online_users = {}
+local fd2uid = {}
 
 local CMD = {}
 function CMD.start(conf)
@@ -25,9 +30,22 @@ function CMD.exit()
 end
 
 function CMD.agent_login(acc, fd)
-    uid = uid + 1
+    original_uid = original_uid + 1
+    --用户已存在
+    if online_users[original_uid] then
+        return "404 User Have Logined"
+    end
+    --将gate的信息重定向到该agent
+    online_users[original_uid] = {}
+    fd2uid[fd] = original_uid
     skynet.send(gate, "lua", "forward", fd)
-    skynet.send(watchdog, "lua", "agent_login_succ", acc, uid, fd, skynet.self())
+    --通知watchdog登录成功
+    skynet.send(watchdog, "lua", "agent_login_succ", acc, original_uid, fd, skynet.self())
+end
+
+function CMD.agent_logout(uid)
+    online_users[uid] = nil
+    skynet.send(watchdog, "lua", "agent_logout_succ", uid)
 end
 
 skynet.register_protocol {
@@ -35,6 +53,14 @@ skynet.register_protocol {
     id = skynet.PTYPE_CLIENT,
     unpack = function (msg, sz) return msg, sz end,
     dispatch = function (fd,_,msg, sz)
+        skynet.ignoreret()
+        local uid = fd2uid[fd]
+        local user = user_namager.get_user(uid)
+        if user then
+            -- msg_handler.dispatch(user, msg, sz)
+        else
+            skynet.error("User Not Found. uid:", uid)
+        end
         skynet.error(string.format("fd:%s, msg:%s, sz:%s", fd, msg, sz))
     end
 }
