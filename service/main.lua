@@ -1,17 +1,11 @@
 local skynet = require "skynet.manager"
+local common_util = require "util.common_util"
 
 local function server_gameworld_init()
     skynet.error("server_gameworld_init")
-    local watchdog = skynet.uniqueservice("watchdog")
-    local agent_cnt = skynet.getenv("agent_cnt")
-    local ok, err = pcall(skynet.call, watchdog, "lua", "start", {agent_cnt = agent_cnt, port = 8888, nodelay = true, maxclient  = 1000})
-    if not ok then
-        skynet.error("watchdog start error:", err)
-        skynet.sleep(1)
-        skynet.abort()
-    else
-        skynet.error("watchdog start...")
-    end
+    local watchdog = common_util.abort_new_service("watchdog")
+    common_util.abort_new_service("mongodb")
+    common_util.assert_skynet_call(skynet.call, watchdog, "lua", "start", {agent_cnt = skynet.getenv("agent_cnt"), port = 8888, nodelay = true, maxclient  = 1000})
 end
 
 local function server_center_init()
