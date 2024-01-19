@@ -4,9 +4,13 @@ local mongo = require "skynet.db.mongo"
 local client
 local CMD = {}
 
-function CMD.connect(host, port)
-    client = mongo.client({host = host, port = tonumber(port),}
-    )
+function CMD.connect(host, port, username, pwd)
+    client = mongo.client({
+        host = host,
+        port = tonumber(port),
+        username = username,
+        password = pwd,
+    })
 end
 
 function CMD.disconnect()
@@ -89,7 +93,7 @@ skynet.start(function()
     skynet.dispatch("lua", function(_, _, cmd, ...)
         local f = CMD[cmd]
         if f then
-            skynet.ret(skynet.pack(f(cmd, ...)))
+            skynet.ret(skynet.pack(f(...)))
         else
             skynet.error(string.format("Unknown command:%s", cmd))
         end
