@@ -1,4 +1,5 @@
 local skynet = require "skynet"
+local table_util = require "util.table_util"
 local M = {}
 
 local users = {}
@@ -7,8 +8,50 @@ function M.get_user(uid)
     return users[uid]
 end
 
+function M.save_user(uid)
+    local user = M.get_user(uid)
+    if not user then
+        return
+    end
+    local updater = {
+        ["$set"] = user,
+    }
+    skynet.send(".mongodb", "lua", "update", {
+        database = "gametest",
+        collection = "user",
+        selector = {acc = user.acc},
+        update = updater,
+        upsert = true,
+        multi = false,
+    })
+    skynet.error("user logout. ", table_util.dump(user))
+end
+--每10s保存一次
+function M.heart_beat(uid)
+    local user = M.get_user(uid)
+    if not user then
+        return
+    end
+    M.save_user(uid)
+    --打印保存信息
+    skynet.timeout(1000, function()
+        M.heart_beat(uid)
+    end)
+end
+
 function M.add_user(u)
     users[u.uid] = u
+    skynet.timeout(1000, function()
+        M.heart_beat(u.uid)
+    end)
+end
+
+function M.user_logout(uid)
+    local user = users[uid]
+    M.save_user(uid)
+    if user then
+        users[uid] = nil
+    end
 end
 
 function M.load_create_user_data(acc)

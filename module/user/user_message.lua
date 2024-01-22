@@ -6,7 +6,7 @@ local M = {}
 
 local message_func = {}
 
-function M.init()
+function M.init_message_func()
     local func_list = require "user.message_func"
     for k, v in pairs(func_list) do
         for _, vv in pairs(v) do
