@@ -3,28 +3,37 @@ local socket = require "skynet.socket"
 local netpack = require "skynet.netpack"
 local crypt = require "skynet.crypt"
 local common_util = require "util.common_util"
+local table_util = require("util.table_util")
 
 local cnt = 0
 local gate_fd
 local subid
-local timeout_msg = "timeout msg"
+
+local acc = "test4"
+local test_table = {
+    func_name = "main_fight",
+    uid = 10003,
+    prize_id = "item_1",
+    t = {[1] = 1, [10000] = 2},
+}
 
 local function test()
     cnt = cnt + 1
-    socket.write(gate_fd, netpack.pack(timeout_msg..cnt))
+    local msg = table_util.table2str(test_table)
+    socket.write(gate_fd, netpack.pack(msg))
     skynet.timeout(100, test)
 end
 
 local function connect_gate()
     gate_fd = socket.open("127.0.0.1", 8888)
-    local msg = "kindf@"..subid
+    local msg = acc.."@"..subid
     socket.write(gate_fd, netpack.pack(msg))
     skynet.timeout(100, test)
 end
 
 local function connect_test()
     local fd = socket.open("127.0.0.1", 9999)
-    local token = "kindf@password\n"
+    local token = acc.."@password\n"
     socket.write(fd, token)
     local response = socket.readline(fd)
     print("response:", response)
@@ -59,7 +68,7 @@ function test_auth(host, port, db_name, username, password)
     -- ok, err, ret = db.test:safe_insert({a = 1, b = 2});
     local coll = db:getCollection("test")
     ret = coll:findOne({}, {})
-    print(common_util.dump(ret))
+    print(table_util.dump(ret))
     -- assert(ok and ret and ret.n == 1, err)
 end
 
