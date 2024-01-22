@@ -1,5 +1,5 @@
 local skynet = require "skynet.manager"
-local common_util = require "util.common_util"
+local table_util = require "util.table_util"
 local M = {}
 
 local user = {}
@@ -7,21 +7,19 @@ user.__index = user
 
 --每10s保存一次
 function user:heart_beat()
-    skynet.error(common_util.dump(self))
     local updater = {
-        ["$set"] = {
-            uid = self.uid,
-            msg_cnt = self.msg_cnt,
-        },
+        ["$set"] = self,
     }
     skynet.send(".mongodb", "lua", "update", {
         database = "gametest",
-        collection = "test",
+        collection = "user",
         selector = {acc = self.acc},
         update = updater,
         upsert = true,
         multi = false,
     })
+    --打印保存信息
+    skynet.error(table_util.dump(self))
     skynet.timeout(1000, function()
         self:heart_beat()
     end)
@@ -30,14 +28,36 @@ end
 function user:init(data)
     self.acc = data.acc
     self.uid = data.uid
-    self.msg_cnt = data.msg_cnt or 0
+    self:init_msg(data)
+    self:init_fight(data)
+
     skynet.timeout(1000, function()
         self:heart_beat()
     end)
 end
 
+function user:init_msg(data)
+    self.msg_cnt = data.msg_cnt or 0
+end
+
+function user:init_fight(data)
+    for _, v in pairs(data.fight_data or {}) do
+        self.fight_data[v.id] = v
+    end
+end
+
+local function new_user_data()
+    local o = {
+        acc = "",
+        uid = 0,
+        msg_cnt = 0,
+        fight_data = {},
+    }
+    return o
+end
+
 function M.new()
-    local o = {}
+    local o = new_user_data()
     setmetatable(o, user)
     return o
 end

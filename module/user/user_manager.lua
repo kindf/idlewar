@@ -14,7 +14,7 @@ end
 function M.load_create_user_data(acc)
     local result = skynet.call(".mongodb", "lua", "find_one", {
         database = "gametest",
-        collection = "test",
+        collection = "user",
         query = {acc = acc},
         selector = {},
     })
@@ -26,7 +26,7 @@ function M.load_create_user_data(acc)
         }
         skynet.call(".mongodb", "lua", "insert", {
             database = "gametest",
-            collection = "test",
+            collection = "user",
             doc = result,
         })
     end

@@ -1,7 +1,7 @@
 local skynet = require "skynet"
 local user_namager = require "user.user_manager"
 local user = require "user.user"
--- local msg_handler = require "msg.handler"
+local user_message = require("user.user_message")
 local agent_name = ...
 
 local watchdog
@@ -16,6 +16,8 @@ function CMD.start(conf)
     watchdog = conf.watchdog
     agent_idx = conf.idx
     gate = conf.gate
+
+    user_message.init()
 
     skynet.send(watchdog, "lua", "add_agent", conf.idx, skynet.self())
     skynet.error("agent start finish. idx:%s name%s", agent_idx, agent_name)
@@ -68,8 +70,7 @@ skynet.register_protocol {
         local uid = fd2uid[fd]
         local u = user_namager.get_user(uid)
         if u then
-            -- msg_handler.dispatch(user, msg, sz)
-            u.msg_cnt = u.msg_cnt + 1
+            user_message.dispatch(u, msg, sz)
         else
             skynet.error("User Not Found. uid:", uid)
         end

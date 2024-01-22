@@ -34,6 +34,8 @@ function CMD.start()
             doc = {tbname = "guid", guid = guid},
         })
     end
+
+    guid = result.guid
     skynet.timeout(1000, heart_beat)
 end
 
