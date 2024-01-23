@@ -1,8 +1,7 @@
-local skynet = require "skynet.manager"
 local battle_model = require "user.battle.battle_model"
 local const_battle = require "user.battle.const"
 local random_util = require "util.random_util"
-local table_util = require "util.table_util"
+
 local M = {}
 
 local function battle_turn(atk, def)

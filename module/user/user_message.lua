@@ -1,5 +1,4 @@
 local skynet = require "skynet.manager"
-local netpack = require "skynet.netpack"
 local table_util = require "util.table_util"
 
 local M = {}
@@ -24,7 +23,6 @@ end
 function M.dispatch(user, msg, sz)
     local m = skynet.tostring(msg, sz)
     local t = table_util.str2table(m)
-    -- local t = table_util.str2table("{ func_name = \"clinet_call_battle\"}")
     if not t then
         skynet.error("error msg. cant not to table")
         return false

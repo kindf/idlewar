@@ -2,7 +2,6 @@ local skynet = require "skynet"
 local socket = require "skynet.socket"
 local netpack = require "skynet.netpack"
 local crypt = require "skynet.crypt"
-local common_util = require "util.common_util"
 local table_util = require("util.table_util")
 
 local cnt = 0
