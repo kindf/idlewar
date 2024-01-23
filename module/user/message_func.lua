@@ -1,7 +1,7 @@
 
 local M = {
-    ["user.fight.main"] = {
-        "main_fight",
+    ["user.battle.main"] = {
+        "client_call_battle",
     },
 }
 

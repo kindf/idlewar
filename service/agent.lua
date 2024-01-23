@@ -62,6 +62,7 @@ function CMD.agent_logout(uid)
     skynet.send(watchdog, "lua", "agent_logout_succ", uid)
 end
 
+local gc_stat = 0
 skynet.register_protocol {
     name = "client",
     id = skynet.PTYPE_CLIENT,
@@ -76,7 +77,13 @@ skynet.register_protocol {
             skynet.error("User Not Found. uid:", uid)
         end
         -- skynet.error(string.format("fd:%s, msg:%s, sz:%s", fd, msg, sz))
+        gc_stat = gc_stat + 1
+        if (gc_stat % 1) == 0 then
+            collectgarbage("step")
+        end
+
     end
+
 }
 
 skynet.start(function()

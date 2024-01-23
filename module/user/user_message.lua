@@ -10,8 +10,8 @@ function M.init_message_func()
     local func_list = require "user.message_func"
     for k, v in pairs(func_list) do
         for _, vv in pairs(v) do
-            local m = require(k)
-            M.reg_message_func(vv, m[vv])
+            local mod = require(k)
+            M.reg_message_func(vv, mod[vv])
         end
     end
 end
@@ -22,8 +22,9 @@ function M.reg_message_func(name, func)
 end
 
 function M.dispatch(user, msg, sz)
-    local m = netpack.tostring(msg, sz)
+    local m = skynet.tostring(msg, sz)
     local t = table_util.str2table(m)
+    -- local t = table_util.str2table("{ func_name = \"clinet_call_battle\"}")
     if not t then
         skynet.error("error msg. cant not to table")
         return false

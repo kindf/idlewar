@@ -24,9 +24,10 @@ function M.save_user(uid)
         upsert = true,
         multi = false,
     })
-    skynet.error("user logout. ", table_util.dump(user))
+    skynet.error("user save. ", table_util.dump(user))
 end
---每10s保存一次
+
+--每60s保存一次
 function M.heart_beat(uid)
     local user = M.get_user(uid)
     if not user then
@@ -34,14 +35,16 @@ function M.heart_beat(uid)
     end
     M.save_user(uid)
     --打印保存信息
-    skynet.timeout(1000, function()
+    local interval = skynet.getenv("user_save_interval")
+    skynet.timeout(100 * interval, function()
         M.heart_beat(uid)
     end)
 end
 
 function M.add_user(u)
     users[u.uid] = u
-    skynet.timeout(1000, function()
+    local interval = skynet.getenv("user_save_interval")
+    skynet.timeout(100 * interval, function()
         M.heart_beat(u.uid)
     end)
 end

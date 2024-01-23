@@ -11,17 +11,14 @@ local subid
 
 local acc = "test4"
 local test_table = {
-    func_name = "main_fight",
-    uid = 10003,
-    prize_id = "item_1",
-    t = {[1] = 1, [10000] = 2},
+    func_name = "client_call_battle",
 }
 
 local function test()
     cnt = cnt + 1
     local msg = table_util.table2str(test_table)
     socket.write(gate_fd, netpack.pack(msg))
-    skynet.timeout(100, test)
+    skynet.timeout(10, test)
 end
 
 local function connect_gate()
