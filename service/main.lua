@@ -6,7 +6,7 @@ local function server_gameworld_init()
     local watchdog = common_util.abort_new_service("watchdog")
     local mongodb = common_util.abort_new_service("mongodb")
     local guid = common_util.abort_new_service("guid")
-    common_util.assert_skynet_call(skynet.call, watchdog, "lua", "start", {agent_cnt = skynet.getenv("agent_cnt"), port = 8888, nodelay = true, maxclient  = 1000})
+    common_util.assert_skynet_call(skynet.call, watchdog, "lua", "start", {agent_cnt = skynet.getenv("agent_cnt"), port = skynet.getenv("gate_port"), nodelay = true, maxclient  = 1000})
     skynet.fork(function()
         local host = skynet.getenv("db_host")
         local port = skynet.getenv("db_port")
@@ -17,13 +17,13 @@ local function server_gameworld_init()
     end)
 end
 
-local function server_center_init()
-    skynet.error("server_center_init")
+local function server_test_init()
+    common_util.abort_new_service("test")
 end
 
 local server_init_func = {
     ["gameworld"] = server_gameworld_init,
-    ["center"] = server_center_init,
+    ["test"] = server_test_init,
 }
 
 skynet.start(function()

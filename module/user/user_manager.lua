@@ -3,6 +3,7 @@ local table_util = require "util.table_util"
 local M = {}
 
 local users = {}
+local uid2fd = {}
 
 function M.get_user(uid)
     return users[uid]
@@ -41,7 +42,8 @@ function M.heart_beat(uid)
     end)
 end
 
-function M.add_user(u)
+function M.add_user(u, fd)
+    uid2fd[u.uid] = fd
     users[u.uid] = u
     local interval = skynet.getenv("user_save_interval")
     skynet.timeout(100 * interval, function()
@@ -49,11 +51,17 @@ function M.add_user(u)
     end)
 end
 
+function M.get_fd(u)
+    local uid = u.uid
+    return uid2fd[uid]
+end
+
 function M.user_logout(uid)
     local user = users[uid]
     M.save_user(uid)
     if user then
         users[uid] = nil
+        uid2fd[uid] = nil
     end
 end
 

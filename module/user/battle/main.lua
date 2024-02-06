@@ -1,6 +1,8 @@
 local battle_model = require "user.battle.battle_model"
 local const_battle = require "user.battle.const"
 local random_util = require "util.random_util"
+local user_message= require "user.user_message"
+local skynet = require "skynet"
 
 local M = {}
 
@@ -43,7 +45,7 @@ local function battle_turn(atk, def)
         }
 end
 
-function M.client_call_battle(_, _)
+function M.client_call_battle(user, _)
     local round = 1
     local total_seq = 0
     local total_round = 1
@@ -72,6 +74,7 @@ function M.client_call_battle(_, _)
             act_type = atk_turn_result.act_type,
             damage = atk_turn_result.damage,
         })
+        skynet.error(string.format("我方：\n当前回合：%s, 我方生命：%s, 敌方生命：%s, 动作类型：%s, 伤害：%s\n", round, atk_model:get_total_hp(), def_model:get_total_hp(), atk_turn_result.act_type, atk_turn_result.damage))
         if (def_model:is_defeat()) then
             break
         end
@@ -86,6 +89,7 @@ function M.client_call_battle(_, _)
             act_type = def_turn_resule.act_type,
             damage = def_turn_resule.damage,
         })
+        skynet.error(string.format("敌方：\n当前回合：%s, 我方生命：%s, 对方生命：%s, 动作类型：%s, 伤害：%s\n", round, def_model:get_total_hp(), atk_model:get_total_hp(), atk_turn_result.act_type, atk_turn_result.damage))
         dex_exp = dex_exp + def_turn_resule.damage
         if (atk_model:is_defeat()) then
             battle_result_code = const_battle.BATTLE_RESULT_CODE.LOSE
@@ -99,8 +103,10 @@ function M.client_call_battle(_, _)
     battle_result.total_seq = total_seq
     battle_result.battle_result_code = battle_result_code
 
+    -- local table_util = require "util.table_util"
+    -- local skynet = require "skynet"
     -- skynet.error(table_util.dump(battle_result))
-    return battle_result
+    user_message.send_client_msg(user, battle_result)
 end
 
 return M

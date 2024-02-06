@@ -10,7 +10,7 @@ local stoping = false
 
 local server = {
     host = "127.0.0.1",
-    port = 9999,
+    port = skynet.getenv("login_port"),
     multilogin = false,
     name = "login_master",
 }
@@ -28,7 +28,7 @@ function server.login_handler(_, acc, _)
     end
     local user = online_user[acc]
     if user then
-        skynet.call(watchdog, "lua", "acc_logout", acc)
+        skynet.call(watchdog, "lua", "watchdog_logout", acc)
         online_user[acc] = nil
     else
         skynet.error("account login. acc:", acc)

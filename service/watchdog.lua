@@ -47,7 +47,11 @@ end
 
 function SOCKET.close(fd)
     --TODO: 重连
-    skynet.send(fd2agent[fd].agent, "lua", "agent_logout", fd2agent[fd].uid)
+    skynet.error(fd)
+    local a = fd2agent[fd]
+    if a then
+        skynet.send(a.agent, "lua", "agent_logout", a.uid)
+    end
 end
 
 function SOCKET.error(fd, msg)
@@ -153,6 +157,10 @@ end
 
 function CMD.agent_logout_succ(uid)
     skynet.send(gate, "lua", "kick", uid2agent[uid].fd)
+end
+
+function CMD.watchdog_logout(acc)
+    skynet.send(acc2agent[acc].agent, "lua", "agent_logout", acc2agent[acc].uid)
 end
 
 skynet.start(function()

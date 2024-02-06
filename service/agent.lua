@@ -1,7 +1,7 @@
 local skynet = require "skynet"
 local user_manager = require "user.user_manager"
 local user = require "user.user"
-local user_message = require("user.user_message")
+local user_message = require "user.user_message"
 local agent_name = ...
 
 local watchdog
@@ -47,9 +47,10 @@ function CMD.agent_login(acc, fd)
     local u = user.new()
     u:init(user_data)
 
-    user_manager.add_user(u)
+    user_manager.add_user(u, fd)
     --将gate的信息重定向到该agent
-    online_users[uid] = {}
+    online_users[uid] = {
+    }
     fd2uid[fd] = uid
     skynet.send(gate, "lua", "forward", fd)
     --通知watchdog登录成功
