@@ -78,7 +78,7 @@ local function auth(fd, addr, msg)
     if not result then
         result = "200 OK"
     end
-    socket.write(fd, netpack.pack(result))
+    -- socket.write(fd, netpack.pack(result))
 end
 
 function SOCKET.data(fd, msg)

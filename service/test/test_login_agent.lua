@@ -36,7 +36,8 @@ function handler.message(fd, msg, sz)
     if not t then
         return skynet.error("error msg. cant not to table")
     end
-    print_battle(t)
+    -- print_battle(t)
+    skynet.error(string.format("fd:%s recv msg.", fd))
 end
 
 local function dispatch_msg(fd, msg, sz)
