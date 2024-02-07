@@ -3,9 +3,10 @@ local netpack = require "skynet.netpack"
 local table_util = require "util.table_util"
 local socketdriver = require "skynet.socketdriver"
 local queue		-- message queue
-local M = {}
 
 local server_fd
+
+local time_interval = 1000
 
 local test_table = {
     func_name = "client_call_battle",
@@ -14,11 +15,17 @@ local test_table = {
 local function test()
     local msg = table_util.table2str(test_table)
     socketdriver.send(server_fd, netpack.pack(msg))
-    skynet.timeout(300, test)
+    skynet.timeout(time_interval, test)
 end
 
 local MSG = {}
 local handler = {}
+
+local function print_battle(t)
+    for _, v in pairs(t.battle_logs) do
+        skynet.error(string.format("当前回合：%s, 我方生命：%s, 敌方生命：%s, 动作类型：%s, 伤害：%s\n", v.round, v.atk_hp, v.def_hp, v.act_type, v.damage))
+    end
+end
 
 function handler.message(fd, msg, sz)
     if fd ~= server_fd then
@@ -29,7 +36,7 @@ function handler.message(fd, msg, sz)
     if not t then
         return skynet.error("error msg. cant not to table")
     end
-    skynet.error(table_util.dump(t))
+    print_battle(t)
 end
 
 local function dispatch_msg(fd, msg, sz)
@@ -111,7 +118,7 @@ function CMD.start(fd, subid)
     subid = subid
     socketdriver.start(fd)
     server_fd = fd
-    skynet.timeout(300, test)
+    skynet.timeout(time_interval, test)
 end
 
 skynet.start(function()
@@ -124,5 +131,3 @@ skynet.start(function()
         end
     end)
 end)
-
-return M

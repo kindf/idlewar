@@ -16,9 +16,9 @@ local server = {
 }
 
 function server.auth_handler(token)
-    local acc, pwd = string.match(token, "([^@]+)@(.+)")
-    skynet.error("try acc auth. acc:", acc, "pwd:", pwd)
-    -- assert(pwd == "password", "Invalid password")
+    local s, acc, pwd = string.match(token, "([^@]+)@(.+):(.+)")
+    skynet.error(string.format("try acc auth. server:%s, acc:%s, pwd:%s", s, acc, pwd))
+    assert(pwd == "password", "Invalid password")
     return nil, acc
 end
 
