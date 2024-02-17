@@ -1,7 +1,7 @@
 local battle_model = require "user.battle.battle_model"
 local const_battle = require "user.battle.const"
 local random_util = require "util.random_util"
-local user_message= require "user.user_message"
+local user_message= require "user.user.user_message"
 local skynet = require "skynet"
 
 local M = {}

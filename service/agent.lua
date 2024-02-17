@@ -1,7 +1,7 @@
 local skynet = require "skynet"
-local user_manager = require "user.user_manager"
-local user = require "user.user"
-local user_message = require "user.user_message"
+local user_manager = require "user.user.user_manager"
+local user = require "user.user.user"
+local user_message = require "user.user.user_message"
 local agent_name = ...
 
 local watchdog

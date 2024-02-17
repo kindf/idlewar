@@ -2,7 +2,7 @@ local skynet = require "skynet.manager"
 local table_util = require "util.table_util"
 local netpack = require "skynet.netpack"
 local socket = require "skynet.socket"
-local user_namager = require "user.user_manager"
+local user_namager = require "user.user.user_manager"
 local pb = require "pb"
 
 local M = {}
@@ -10,7 +10,7 @@ local M = {}
 local message_func = {}
 
 function M.init_message_func()
-    local func_list = require "user.message_func"
+    local func_list = require "user.user.message_func"
     for k, v in pairs(func_list) do
         for _, vv in pairs(v) do
             local mod = require(k)
