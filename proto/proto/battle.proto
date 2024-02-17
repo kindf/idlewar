@@ -1,0 +1,21 @@
+syntax  = "proto3";
+package battle;
+
+message req_battle {
+}
+
+message res_battle {
+    message battle_log {
+        uint32 seq_number = 1;
+        uint32 round = 2;
+        uint32 atk_hp = 3;
+        uint32 def_hp = 4;
+        uint32 act_type = 5;
+        uint32 damage = 6;
+    };
+    uint32 total_round = 1;
+    uint32 total_seq = 2;
+    uint32 battle_result_code = 3;
+    repeated battle_log battle_logs = 4;
+}
+

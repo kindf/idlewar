@@ -3,10 +3,11 @@ local netpack = require "skynet.netpack"
 local table_util = require "util.table_util"
 local socketdriver = require "skynet.socketdriver"
 local queue		-- message queue
+local pb = require "pb"
 
 local server_fd
 
-local time_interval = 1000
+local time_interval = 100
 
 local test_table = {
     func_name = "client_call_battle",
@@ -27,16 +28,17 @@ local function print_battle(t)
     end
 end
 
+pb.loadfile("proto/pb/battle.pb")
 function handler.message(fd, msg, sz)
     if fd ~= server_fd then
         return skynet.error("error fd msg. fd:", fd)
     end
     local m = skynet.tostring(msg, sz)
-    local t = table_util.str2table(m)
+    local t = pb.decode("battle.res_battle", m, sz)
     if not t then
         return skynet.error("error msg. cant not to table")
     end
-    -- print_battle(t)
+    print_battle(t)
     skynet.error(string.format("fd:%s recv msg.", fd))
 end
 

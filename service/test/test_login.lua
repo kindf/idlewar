@@ -5,7 +5,7 @@ local crypt = require "skynet.crypt"
 
 local account_list = {}
 --登录账号信息
-for i = 1, 1000 do
+for i = 1, 1 do
     table.insert(account_list, {
         server = "idlewar",
         acc = "test_acc"..i,

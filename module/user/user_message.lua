@@ -3,6 +3,7 @@ local table_util = require "util.table_util"
 local netpack = require "skynet.netpack"
 local socket = require "skynet.socket"
 local user_namager = require "user.user_manager"
+local pb = require "pb"
 
 local M = {}
 
@@ -16,6 +17,7 @@ function M.init_message_func()
             M.reg_message_func(vv, mod[vv])
         end
     end
+    pb.loadfile("proto/pb/battle.pb")
 end
 
 function M.reg_message_func(name, func)
@@ -44,8 +46,8 @@ function M.send_client_msg(user, t)
     if not fd then
         skynet.error("send_msg error. not fd. uid:", user.uid)
     end
-    local msg = table_util.table2str(t)
-    socket.write(fd, netpack.pack(msg))
+    -- local msg = table_util.table2str(t)
+    socket.write(fd, netpack.pack(t))
 end
 
 return M

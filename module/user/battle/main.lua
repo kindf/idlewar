@@ -106,7 +106,8 @@ function M.client_call_battle(user, _)
     -- local table_util = require "util.table_util"
     -- local skynet = require "skynet"
     -- skynet.error(table_util.dump(battle_result))
-    user_message.send_client_msg(user, battle_result)
+    local pb = require "pb"
+    user_message.send_client_msg(user, pb.encode("battle.res_battle", battle_result))
 end
 
 return M
