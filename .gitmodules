@@ -4,3 +4,6 @@
 [submodule "lualib/lua-protobuf"]
 	path = lualib/lua-protobuf
 	url = git@github.com:starwing/lua-protobuf.git
+[submodule "lualib/luafilesystem"]
+	path = lualib/luafilesystem
+	url = git@github.com:lunarmodules/luafilesystem.git
