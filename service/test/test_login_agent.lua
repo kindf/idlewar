@@ -4,17 +4,16 @@ local table_util = require "util.table_util"
 local socketdriver = require "skynet.socketdriver"
 local queue		-- message queue
 local pb = require "pb"
+local rpc = require "user.rpc.main"
+rpc.register_pb()
 
 local server_fd
 
 local time_interval = 100
 
-local test_table = {
-    func_name = "client_call_battle",
-}
-
 local function test()
-    local msg = table_util.table2str(test_table)
+    local pid = 1
+    local msg = rpc.pack_rpc(pid, pb.encode("battle.c2s_battle", {}))
     socketdriver.send(server_fd, netpack.pack(msg))
     skynet.timeout(time_interval, test)
 end
@@ -28,13 +27,12 @@ local function print_battle(t)
     end
 end
 
-pb.loadfile("proto/pb/battle.pb")
 function handler.message(fd, msg, sz)
     if fd ~= server_fd then
         return skynet.error("error fd msg. fd:", fd)
     end
     local m = skynet.tostring(msg, sz)
-    local t = pb.decode("battle.res_battle", m, sz)
+    local t = pb.decode("battle.s2c_battle", string.sub(m, 3))
     if not t then
         return skynet.error("error msg. cant not to table")
     end
