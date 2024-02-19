@@ -21,5 +21,5 @@
 
 
 #### TODO
-- 协议暂时只是简单的将 table 序列化，改用 protobuff
+- ~~协议暂时只是简单的将 table 序列化，改用 protobuff~~
 - 断线重连机制
