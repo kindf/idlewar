@@ -19,6 +19,15 @@
 - 校验完成后，watchdog 服务将客户端分配到合适的 agent 服务
 - 完成上述操作的客户端所发送的消息，会被 gate 服务转发到对应的 agent 服务
 
+#### c库编译
+- lua-protobuf库：
+``` shell
+cd lualib/lua-protobuf && gcc -O2 -shared -fPIC -I ../../skynet/3rd/lua pb.c -o pb.so && mv pb.so ../lib/ && cd ../../
+```
+- luafilesystem库：
+``` shell
+cd lualib/luafilesystem && gcc -shared -O2 -Wall -fPIC -I ../../skynet/3rd/lua src/lfs.c -o lfs.so && mv lfs.so ../lib/ && cd ../../
+```
 
 #### TODO
 - ~~协议暂时只是简单的将 table 序列化，改用 protobuff~~
