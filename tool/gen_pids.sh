@@ -4,7 +4,7 @@
 PROTO_DIR="./proto/proto"
 
 # 输出的Lua文件
-LUA_OUTPUT_FILE="./proto/message_ids.lua"
+LUA_OUTPUT_FILE="./proto/pids.lua"
 
 # 临时文件存储之前生成的ID和哈希
 TEMP_ID_FILE="./proto/temp_ids.txt"
@@ -18,7 +18,7 @@ else
 fi
 
 # 初始化Lua文件
-echo "-- 本文件又脚本gen_pids.sh自动生成，禁止手动修改." > "$LUA_OUTPUT_FILE"
+echo "-- 本文件由脚本gen_pids.sh自动生成，禁止手动修改." > "$LUA_OUTPUT_FILE"
 echo "local M = {}" >> "$LUA_OUTPUT_FILE"
 
 # 更新或生成消息ID

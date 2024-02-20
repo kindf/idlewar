@@ -20,7 +20,7 @@ function CMD.start(conf)
     gate = conf.gate
 
     user_message.init_message_func()
-    rpc.register_pb()
+    rpc.init_pb()
 
     skynet.send(watchdog, "lua", "add_agent", conf.idx, skynet.self())
     skynet.error("agent start finish. idx:%s name%s", agent_idx, agent_name)

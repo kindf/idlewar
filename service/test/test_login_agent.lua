@@ -5,15 +5,16 @@ local socketdriver = require "skynet.socketdriver"
 local queue		-- message queue
 local pb = require "pb"
 local rpc = require "user.rpc.main"
-rpc.register_pb()
+local pname2pid = require "proto.pids"
 
 local server_fd
 
 local time_interval = 100
 
 local function test()
-    local pid = 1
+    local pid = pname2pid["battle.c2s_battle"]
     local msg = rpc.pack_rpc(pid, pb.encode("battle.c2s_battle", {}))
+    print(msg)
     socketdriver.send(server_fd, netpack.pack(msg))
     skynet.timeout(time_interval, test)
 end
@@ -131,4 +132,5 @@ skynet.start(function()
             skynet.error("invalid cmd. cmd:%s", command)
         end
     end)
+    rpc.init_pb()
 end)
