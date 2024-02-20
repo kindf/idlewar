@@ -1,0 +1,4 @@
+declare -A MESSAGE_IDS=(
+)
+declare -A MESSAGE_HASHES=(
+)

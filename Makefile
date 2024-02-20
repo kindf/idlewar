@@ -14,3 +14,4 @@ test:
 
 proto:
 	sh tool/proto.sh
+	sh tool/gen_pids.sh
