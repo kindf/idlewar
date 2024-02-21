@@ -1,13 +1,16 @@
 #!/bin/bash
 
 # 配置你的protobuf文件的目录
-PROTO_DIR="./proto/proto"
+PROTO_DIR="proto/proto"
 
 # 输出的Lua文件
-LUA_OUTPUT_FILE="./proto/pids.lua"
+LUA_OUTPUT_FILE="proto/pids.lua"
 
 # 临时文件存储之前生成的ID和哈希
-TEMP_ID_FILE="./proto/temp_ids.txt"
+TEMP_ID_FILE="proto/temp_ids.txt"
+
+CLIENT_PROTO_MATCH_KEY=c2s_
+SERVER_PROTO_MATCH_KEY=s2c_
 
 # 如果之前的临时ID文件存在，则读取它以保持ID的一致性
 if [ -f "$TEMP_ID_FILE" ]; then
@@ -52,19 +55,16 @@ update_or_generate_id() {
 }
 
 # 为每个proto文件生成或更新ID
-for proto_file in "$PROTO_DIR"/*.proto; do
-    # 获取不含路径和后缀的文件名作为消息名称
-    ls proto/proto/*.proto | while read fname
+ls $PROTO_DIR/*.proto | while read fname
+do
+    package=`grep '^package[[:blank:]]' $fname | awk -F'[ ;]' '{print $2}'`
+    grep '^message[[:blank:]]' $fname | awk -F'[ {]' '{print $2}' | while read line
     do
-        package=`grep '^package[[:blank:]]' $fname | awk -F'[ ;]' '{print $2}'`
-        grep '^message[[:blank:]]' $fname | awk -F'[ {]' '{print $2}' | while read line
-        do
-            if [[ $line == "c2s_"* || $line == "s2c_"* ]]; then
-                message_name=$package"."$line
-                update_or_generate_id "$message_name"
-                echo generate $package"."$line pid succ.
-            fi
-        done
+        if [[ $line == $CLIENT_PROTO_MATCH_KEY* || $line == $SERVER_PROTO_MATCH_KEY* ]]; then
+            message_name=$package"."$line
+            update_or_generate_id "$message_name"
+            echo generate $package"."$line pid succ.
+        fi
     done
 done
 
