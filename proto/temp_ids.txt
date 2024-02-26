@@ -1,4 +1,2 @@
-declare -A MESSAGE_IDS=(
-)
-declare -A MESSAGE_HASHES=(
-)
+declare -A MESSAGE_IDS=([battle.c2s_battle]="27487" [battle.s2c_battle]="46047" [battle.c2s_echo]="32854" [battle.s2c_echo]="27719" )
+declare -A MESSAGE_HASHES=([46047]="battle.s2c_battle" [32854]="battle.c2s_echo" [27719]="battle.s2c_echo" [27487]="battle.c2s_battle" )

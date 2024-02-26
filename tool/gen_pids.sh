@@ -9,6 +9,7 @@ LUA_OUTPUT_FILE="proto/pids.lua"
 # 临时文件存储之前生成的ID和哈希
 TEMP_ID_FILE="proto/temp_ids.txt"
 
+# 客户端和服务器的消息匹配关键字
 CLIENT_PROTO_MATCH_KEY=c2s_
 SERVER_PROTO_MATCH_KEY=s2c_
 
@@ -19,10 +20,6 @@ else
     declare -A MESSAGE_IDS
     declare -A MESSAGE_HASHES
 fi
-
-# 初始化Lua文件
-echo "-- 本文件由脚本gen_pids.sh自动生成，禁止手动修改." > "$LUA_OUTPUT_FILE"
-echo "local M = {}" >> "$LUA_OUTPUT_FILE"
 
 # 更新或生成消息ID
 update_or_generate_id() {
@@ -49,40 +46,31 @@ update_or_generate_id() {
         MESSAGE_IDS[$message_name]=$message_id
         MESSAGE_HASHES[$message_id]=$message_name
     fi
-
-    # 输出Lua代码
-    echo "M[\"$message_name\"] = $message_id" >> "$LUA_OUTPUT_FILE"
 }
 
-# 为每个proto文件生成或更新ID
-ls $PROTO_DIR/*.proto | while read fname
-do
-    package=`grep '^package[[:blank:]]' $fname | awk -F'[ ;]' '{print $2}'`
-    grep '^message[[:blank:]]' $fname | awk -F'[ {]' '{print $2}' | while read line
-    do
-        if [[ $line == $CLIENT_PROTO_MATCH_KEY* || $line == $SERVER_PROTO_MATCH_KEY* ]]; then
-            message_name=$package"."$line
-            update_or_generate_id "$message_name"
-            echo generate $package"."$line pid succ.
+for proto_file in $(find $PROTO_DIR -name '*.proto'); do
+    echo "Processing $proto_file"
+    # 提取每个文件中定义的消息名称
+    package=`grep '^package[[:blank:]]' $proto_file | awk -F'[ ;]' '{print $2}'`
+    for message_name in $(grep -oP 'message \K(\w+)' $proto_file); do
+        # 为每个消息调用update_or_generate_id函数来分配或更新ID
+        if [[ $message_name == $CLIENT_PROTO_MATCH_KEY* || $message_name == $SERVER_PROTO_MATCH_KEY* ]]; then
+            update_or_generate_id "$package.$message_name"
         fi
     done
 done
 
-# 完成Lua脚本文件
-echo "return M" >> "$LUA_OUTPUT_FILE"
-
-# 保存生成的ID和哈希到临时文件，以备后用
-echo "declare -A MESSAGE_IDS=(" > "$TEMP_ID_FILE"
+# 将MESSAGE_IDS数组中的内容输出到LUA_OUTPUT_FILE
+echo "-- 本文件由脚本gen_pids.sh自动生成，禁止手动修改." > $LUA_OUTPUT_FILE
+echo "return {" >> $LUA_OUTPUT_FILE
 for key in "${!MESSAGE_IDS[@]}"; do
-    echo "  [$key]=${MESSAGE_IDS[$key]}" >> "$TEMP_ID_FILE"
+    echo "    [\"$key\"] = ${MESSAGE_IDS[$key]}," >> $LUA_OUTPUT_FILE
 done
-echo ")" >> "$TEMP_ID_FILE"
+echo "}" >> $LUA_OUTPUT_FILE
 
-echo "declare -A MESSAGE_HASHES=(" >> "$TEMP_ID_FILE"
-for key in "${!MESSAGE_HASHES[@]}"; do
-    echo "  [$key]=${MESSAGE_HASHES[$key]}" >> "$TEMP_ID_FILE"
-done
-echo ")" >> "$TEMP_ID_FILE"
+# 将当前的MESSAGE_IDS和MESSAGE_HASHES保存到TEMP_ID_FILE中
+declare -p MESSAGE_IDS > $TEMP_ID_FILE
+declare -p MESSAGE_HASHES >> $TEMP_ID_FILE
 
 echo "Message IDs updated in $LUA_OUTPUT_FILE"
 
