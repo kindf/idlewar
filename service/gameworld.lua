@@ -18,44 +18,8 @@ local function server_gameworld_init()
     end)
 end
 
-local function server_test_init()
-    common_util.abort_new_service("test")
-end
-
-local function server_userlog_init()
-    skynet.newservice("userlog")
-end
-
-local server_init_func = {
-    ["gameworld"] = server_gameworld_init,
-    ["test"] = server_test_init,
-    ["user_log"] = server_userlog_init,
-}
-
-local function signal_handler()
-    skynet.error("ljldebug:::::::::::::signal_handler")
-    skynet.sleep(150)
-end
-
--- 捕捉sighup信号(kill -1)
-skynet.register_protocol {
-    name = "SYSTEM",
-    id = skynet.PTYPE_SYSTEM,
-    unpack = function(...) return ... end,
-    dispatch = signal_handler
-}
-
-
 skynet.start(function()
-    skynet.register(".main")
-    local server_type = skynet.getenv("server_type")
-    skynet.error("server start. server_type:", server_type)
-    local init_func = server_init_func[server_type]
+    skynet.register(".gameworld")
     skynet.newservice("debug_console", skynet.getenv("debug_console_port"))
-    if not init_func then
-        skynet.error("start error. not server_type:", server_type)
-        skynet.sleep(1)
-        skynet.abort()
-    end
-    init_func()
+    server_gameworld_init()
 end)

@@ -14,7 +14,6 @@ local time_interval = 100
 local function test()
     local pid = pname2pid["battle.c2s_battle"]
     local msg = rpc.pack_rpc(pid, pb.encode("battle.c2s_battle", {}))
-    print(msg)
     socketdriver.send(server_fd, netpack.pack(msg))
     skynet.timeout(time_interval, test)
 end

@@ -9,7 +9,7 @@ local function register_func(name, func)
     rpc_handler_funcs[id] = func
 end
 
-local function rpc_unpack(msg, sz)
+function M.rpc_unpack(msg, sz)
     local m = skynet.tostring(msg, sz)
     local h = string.byte(string.sub(m, 1, 1))
     local l = string.byte(string.sub(m, 2, 2))
@@ -17,8 +17,7 @@ local function rpc_unpack(msg, sz)
     return pid, string.sub(m, 3)
 end
 
-function M.dispatch_c2s_message(user, msg, sz)
-    local pid, data = rpc_unpack(msg, sz)
+function M.dispatch_c2s_message(user, pid, data)
     local f = rpc_handler_funcs[pid]
     if not f then
         return skynet.error("not func. pid:", pid)

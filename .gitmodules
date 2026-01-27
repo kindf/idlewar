@@ -7,3 +7,6 @@
 [submodule "lualib/luafilesystem"]
 	path = lualib/luafilesystem
 	url = git@github.com:lunarmodules/luafilesystem.git
+[submodule "module/battle"]
+	path = module/battle
+	url = git@github.com:kindf/lua-game-battle.git

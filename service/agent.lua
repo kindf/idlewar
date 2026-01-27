@@ -35,6 +35,7 @@ function CMD.exit()
 end
 
 function CMD.agent_login(acc, fd)
+    skynet.error("kkkkkkkkkkiiiikk")
     --用户已存在
     local user_data = user_manager.load_create_user_data(acc)
 
@@ -70,7 +71,7 @@ local gc_stat = 0
 skynet.register_protocol {
     name = "client",
     id = skynet.PTYPE_CLIENT,
-    unpack = function (msg, sz) return msg, sz end,
+    unpack = function (msg, sz) return rpc_dispatch.rpc_unpack(msg, sz) end,
     dispatch = function (fd,_,msg, sz)
         skynet.ignoreret()
         local uid = fd2uid[fd]
