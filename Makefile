@@ -1,16 +1,25 @@
-.PHONY: all help start test proto
+.PHONY: all help allstart gamestart battlestart clientstart proto
 all : help
 
 help:
-	@echo "make start: 启动服务器"
-	@echo "make test: 启动测试进程"
+	@echo "make allstart: 启动所有节点"
+	@echo "make gamestart: 启动game节点"
+	@echo "make batlestart: 启动战斗节点"
+	@echo "make clientstart: 启动测试节点"
 	@echo "make proto: 编译pb文件"
 
-start:
-	sh tool/start.sh gameworld
+gamestart:
+	./skynet/skynet etc/gamenode.cfg
 
-test:
-	sh tool/start.sh test
+battlestart:
+	./skynet/skynet etc/battlenode.cfg
+
+allstart:
+	./skynet/skynet etc/gamenode.cfg
+	./skynet/skynet etc/battlenode.cfg
+
+clientstart:
+	./skynet/skynet etc/clientnode.cfg
 
 proto:
 	sh tool/proto.sh

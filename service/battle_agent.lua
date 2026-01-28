@@ -1,5 +1,6 @@
 package.path = package.path .. ';./module/battle/?.lua'
 local skynet = require "skynet"
+require "skynet.manager"
 require "module.battle.init"
 require "module.battle.util.tool"
 
@@ -39,4 +40,5 @@ skynet.start(function()
             skynet.error("invalid cmd. cmd:%s", command)
         end
     end)
+    -- skynet.register("battle_agent")
 end)

@@ -66,7 +66,7 @@ local function do_auth(fd, msg)
     local acc, subid = string.match(msg, "([^@]+)@(.+)")
     local key = get_login_key(acc, subid)
     if not login_acc[key] then
-        -- return "404 User Not Login"
+        return "404 User Not Login"
     end
     local agent = get_next_agent()
     local ret = skynet.call(agent, "lua", "agent_login", acc, fd)

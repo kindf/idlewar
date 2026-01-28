@@ -1,4 +1,5 @@
 local skynet = require "skynet.manager"
+local cluster = require "skynet.cluster"
 local M = {}
 
 function M.abort_new_service(name, ...)
@@ -20,6 +21,11 @@ function M.assert_skynet_call(...)
         skynet.sleep(1)
         skynet.abort()
     end
+end
+
+function M.cluster_call_battle()
+    local svrIdx = math.random(1, 10)
+    return cluster.call("battlenode", "battle_agent_"..svrIdx, "pvp_battle")
 end
 
 return M

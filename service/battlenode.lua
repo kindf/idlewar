@@ -7,7 +7,10 @@ local nodeName = skynet.getenv("nodename")
 
 local function ServerBattleInit()
     skynet.error("ServerBattleInit")
-    local battleAgent = common_util.abort_new_service("battle_agent")
+    for i=1, 10 do
+        local battleAgent = common_util.abort_new_service("battle_agent")
+        skynet.name("battle_agent_"..i, battleAgent)
+    end
 end
 
 skynet.start(function()
