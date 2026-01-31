@@ -1,4 +1,6 @@
 local Logger = require "public.logger"
+local netpack = require "skynet.netpack"
+local socket = require "skynet.socket"
 local skynet = require "skynet"
 local GateMgr = {}
 local gate
@@ -29,6 +31,14 @@ function GateMgr.AddConnection(fd, ip)
     c.agentaddr = nil
     c.uid = nil
     connections[fd] = c
+end
+
+function GateMgr.SendClientMessage(fd, msg)
+    local connection = connections[fd]
+    if not connection then
+        return Logger.Error("GateMgr.SendClientMessage 连接不存在 fd=%s", fd)
+    end
+    socket.write(fd, msg)
 end
 
 return GateMgr

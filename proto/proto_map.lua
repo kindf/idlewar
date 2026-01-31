@@ -25,10 +25,13 @@ local function RegisterGameNodeProto(protoName, isAgent)
     }
 end
 
+-- 注册 Login Server 的协议
 RegisterLoginNodeProto("login.c2s_check_version")
 RegisterLoginNodeProto("login.c2s_login_auth")
-RegisterGameNodeProto("battle.c2s_battle")
-RegisterGameNodeProto("battle.c2s_echo")
+
+-- 注册 Game Server 的协议
+RegisterGameNodeProto("battle.c2s_battle", false)
+RegisterGameNodeProto("battle.c2s_echo", false)
 
 function ProtoMap.GetProtoInfo(protoId)
     return ProtoMap[protoId]

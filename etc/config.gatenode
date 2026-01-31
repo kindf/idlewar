@@ -1,3 +1,4 @@
+include "config.path"
 -- 线程个数
 thread = 8
 -- 启动配置
@@ -7,12 +8,6 @@ nodename = "gatenode"
 
 harbor = 0
 gate_port = 8888
+debug_console_port = 8889
 
--- 路径设置
-root = "./"
-luaservice = root.."service/?.lua;"..root.."skynet/service/?.lua;"..root.."service/test/?.lua;"..root.."service/gate/?.lua"
-lualoader = root .. "skynet/lualib/loader.lua"
-lua_path = root.."?.lua;"..root.."module/?.lua;"..root.."skynet/lualib/?.lua"
-lua_cpath = root .. "skynet/luaclib/?.so;"..root.."lualib/lib/?.so"
-cpath = root.."skynet/cservice/?.so"
-snax = root.."service/?.lua"
+luaservice = luaservice..root.."service/gate/?.lua;"

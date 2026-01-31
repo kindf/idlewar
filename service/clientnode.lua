@@ -1,6 +1,0 @@
-local skynet = require "skynet.manager"
-
-skynet.start(function()
-    skynet.newservice("test_login")
-    skynet.error("clientnode start")
-end)

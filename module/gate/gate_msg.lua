@@ -15,4 +15,8 @@ end
 function CMD.bind_agent(fd, uid, agent)
 end
 
+function CMD.SendClientMessage(fd, msg)
+    GateMgr.SendClientMessage(fd, msg)
+end
+
 return CMD

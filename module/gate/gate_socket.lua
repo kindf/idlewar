@@ -1,25 +1,10 @@
-local cluster = require "skynet.cluster"
-local skynet = require "skynet"
 local socket = require "skynet.socket"
 local GateMgr = require "gate.gate_mgr"
 local Pids = require "proto.pids"
-local ServerPids = require "proto.serverpids"
 local Logger = require "public.logger"
 local RpcHelper = require "util.rpc_helper"
 local ClusterHelper = require "public.cluster_helper"
 local SOCKET = {}
-
-function get_context(c)
-    local ctx = {}
-    ctx.gate = cluster_monitor.get_current_nodename()
-    ctx.watchdog = skynet.self()
-    ctx.is_websocket = GateMgr.is_websocket()
-    ctx.fd = c.fd
-    ctx.ip = c.ip
-    ctx.session = c.session
-    ctx.player_id = c.player_id
-    return ctx
-end
 
 local function Dispatch(c, protoId, msg)
     if not protoId then
@@ -38,20 +23,20 @@ local function Dispatch(c, protoId, msg)
 end
 
 local function DispatchData(c, msg)
-    local protoId, buffMsg
-    local ok, err = xpcall(function()
-        protoId, buffMsg = RpcHelper.UnpackHeader(msg)
-        Dispatch(c, protoId, buffMsg)
+    local ok, err, buffMsg = xpcall(function()
+        return RpcHelper.UnpackHeader(msg)
     end, debug.traceback)
     if not ok then
         GateMgr.CloseConnection(c.fd)
         return Logger.Error("协议解析失败 err:%s", err)
     end
+    Dispatch(c, err, buffMsg)
 end
 
 
 function SOCKET.open(fd, ip)
     GateMgr.AddConnection(fd, ip)
+    Logger.Info("连接成功 fd:%d ip:%s", fd, ip)
 end
 
 --收到socket关闭的通知
@@ -64,10 +49,11 @@ function SOCKET.error(fd, msg)
 end
 
 function SOCKET.warning(fd, size)
-    Logger.Warning("%d bytes havn't send out in fd[%d]", fd, size)
+    Logger.Warning("[SOCKET.warning] %d bytes havn't send out in fd[%d]", fd, size)
 end
 
 function SOCKET.data(fd, msg)
+    Logger.Debug("[SOCKET.data] 收到数据 fd:%d", fd)
     local c = GateMgr.GetConnection(fd)
     if not c then
         return
