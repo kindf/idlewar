@@ -31,6 +31,16 @@ function GateMgr.AddConnection(fd, ip)
     c.agentaddr = nil
     c.uid = nil
     connections[fd] = c
+    skynet.call(gate, "lua", "accept", fd)
+end
+
+function GateMgr.CloseConnection(fd)
+    local connection = connections[fd]
+    if not connection then
+        return Logger.Error("GateMgr.CloseConnection 连接不存在 fd=%s", fd)
+    end
+    connections[fd] = nil
+    skynet.call(gate, "lua", "close", fd)
 end
 
 function GateMgr.SendClientMessage(fd, msg)

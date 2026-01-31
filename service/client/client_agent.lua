@@ -30,7 +30,7 @@ local function ClientLogin(account)
     local msgBody = {version = "aaa"}
     local msg = rpc.pack_rpc(pid, Pb.encode(pbName, msgBody))
     -- local pack = PackClientMsg(pid, msgBody)
-    socket.write(gateFd, netpack.pack("hello"))
+    socket.write(gateFd, netpack.pack(msg))
     -- socket.write(gateFd, pack)
 end
 

@@ -1,4 +1,5 @@
 local skynet = require "skynet"
+require "skynet.manager"
 local ClusterHelper = require "public.cluster_helper"
 local Pids = require "proto.pids"
 local ProtocolHelper = require "public.protocol_helper"
@@ -41,6 +42,7 @@ end
 --检查版本
 local function C2SCheckVersion(req, resp)
     resp.retCode = RetCode.SUCCESS
+    Logger.Debug("接受到Gate转发的协议 version:%s", req.version)
 end
 ProtocolHelper.RegisterRpcHandler(Pids["login.c2s_check_version"], Pids["login.s2c_check_version"], C2SCheckVersion)
 
@@ -88,6 +90,7 @@ function CMD.DispatchClientMessage(fd, protoId, protoBody)
         end
         ClusterHelper.SendClientMessage(fd, handler.respProtoId, resp)
     end
+    Logger.Debug("协议转发成功 protoId:%s", protoId)
 end
 
 function CMD.start()
@@ -96,7 +99,9 @@ end
 
 skynet.start(function()
     skynet.dispatch("lua", function(session, source, cmd, subcmd, ...)
+        Logger.Debug("cmd:%s subcmd:%s", cmd, subcmd)
         local f = assert(CMD[cmd])
         skynet.ret(skynet.pack(f(subcmd, ...)))
     end)
+    skynet.register(".login")
 end)

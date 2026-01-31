@@ -10,7 +10,7 @@ function ClusterHelper.TransmitMessage(connection, protoId, protoMsg)
     local proto = ProtoMap.GetProtoInfo(protoId)
     local node = proto.node
     local service = proto.service or connection.agentaddr
-    local succ, err = pcall(cluster.send, node, service, "lua", "DispatchClientMessage", connection.fd, protoId, protoMsg)
+    local succ, err = pcall(cluster.send, node, service, "DispatchClientMessage", connection.fd, protoId, protoMsg)
     return succ, err
 end
 
@@ -25,7 +25,7 @@ function ClusterHelper.SendClientMessage(fd, respId, resp)
     local bodyLen = #msg
     assert(bodyLen <= lenLimit, "消息长度超出限制")
     local pack = spack(">H h s", bodyLen, respId, msg)
-    return pcall(cluster.send, "gatenode", ".gatewatchdog", "lua", "SendClientMessage", fd, pack)
+    return pcall(cluster.send, "gatenode", ".gatewatchdog", "SendClientMessage", fd, pack)
 end
 
 return ClusterHelper

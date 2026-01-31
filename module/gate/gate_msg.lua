@@ -1,4 +1,5 @@
 local skynet = require "skynet"
+local Logger = require "public.logger"
 local GateMgr = require "gate.gate_mgr"
 local CMD = {}
 
@@ -17,6 +18,7 @@ end
 
 function CMD.SendClientMessage(fd, msg)
     GateMgr.SendClientMessage(fd, msg)
+    Logger.Debug("[CMD.SendClientMessage] 发送消息 fd:%s", fd)
 end
 
 return CMD

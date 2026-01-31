@@ -42,6 +42,7 @@ end
 --收到socket关闭的通知
 function SOCKET.close(fd)
     GateMgr.CloseConnection(fd, "SOCKET_CLOSE")
+    Logger.Info("连接关闭 fd:%d", fd)
 end
 
 function SOCKET.error(fd, msg)
