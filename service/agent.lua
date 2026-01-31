@@ -35,7 +35,6 @@ function CMD.exit()
 end
 
 function CMD.agent_login(acc, fd)
-    skynet.error("kkkkkkkkkkiiiikk")
     --用户已存在
     local user_data = user_manager.load_create_user_data(acc)
 

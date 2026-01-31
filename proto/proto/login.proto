@@ -1,0 +1,23 @@
+// TARGET_NODE loginnode
+syntax  = "proto3";
+package login;
+
+// 检查版本号
+message c2s_check_version {
+  string version = 1;
+}
+
+message s2c_check_version {
+  uint32 retCode = 1;
+}
+
+// 登录验证
+message c2s_login_auth {
+  string account = 1;
+  string token = 2;
+}
+
+message s2c_login_auth {
+  uint32 retCode = 1;
+  string loginToken = 2;
+}

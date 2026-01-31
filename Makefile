@@ -9,17 +9,17 @@ help:
 	@echo "make proto: 编译pb文件"
 
 gamestart:
-	./skynet/skynet etc/gamenode.cfg
+	./skynet/skynet etc/config.gamenode
 
 battlestart:
-	./skynet/skynet etc/battlenode.cfg
+	./skynet/skynet etc/config.battlenode
 
 allstart:
 	./skynet/skynet etc/gamenode.cfg
 	./skynet/skynet etc/battlenode.cfg
 
 clientstart:
-	./skynet/skynet etc/clientnode.cfg
+	./skynet/skynet etc/config.clientnode
 
 proto:
 	sh tool/proto.sh

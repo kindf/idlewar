@@ -10,8 +10,6 @@ harbor = 0
 
 max_online_limit = 2000
 agent_login_min = 1000
-agent_cnt = 2
-cluster_port = 7000
 
 --保存间隔
 user_save_interval = 60 * 5

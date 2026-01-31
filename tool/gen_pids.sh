@@ -5,6 +5,7 @@ PROTO_DIR="proto/proto"
 
 # 输出的Lua文件
 LUA_OUTPUT_FILE="proto/pids.lua"
+LUA_OUTPUT_FILE2="proto/serverpids.lua"
 
 # 临时文件存储之前生成的ID和哈希
 TEMP_ID_FILE="proto/temp_ids.txt"
@@ -19,6 +20,7 @@ if [ -f "$TEMP_ID_FILE" ]; then
 else
     declare -A MESSAGE_IDS
     declare -A MESSAGE_HASHES
+    declare -A MESSAGE_SERVERS
 fi
 
 # 更新或生成消息ID
@@ -44,18 +46,20 @@ update_or_generate_id() {
 
         # 保存新的ID和哈希值
         MESSAGE_IDS[$message_name]=$message_id
-        MESSAGE_HASHES[$message_id]=$message_name
     fi
+    MESSAGE_HASHES[$message_id]=$message_name
+    MESSAGE_SERVERS[$message_id]=$2
 }
 
 for proto_file in $(find $PROTO_DIR -name '*.proto'); do
     echo "Processing $proto_file"
     # 提取每个文件中定义的消息名称
     package=`grep '^package[[:blank:]]' $proto_file | awk -F'[ ;]' '{print $2}'`
+    server=`grep 'TARGET_NODE' $proto_file | awk '{print $3}'`
     for message_name in $(grep -oP 'message \K(\w+)' $proto_file); do
         # 为每个消息调用update_or_generate_id函数来分配或更新ID
         if [[ $message_name == $CLIENT_PROTO_MATCH_KEY* || $message_name == $SERVER_PROTO_MATCH_KEY* ]]; then
-            update_or_generate_id "$package.$message_name"
+            update_or_generate_id "$package.$message_name" "$server"
         fi
     done
 done
@@ -66,7 +70,17 @@ echo "return {" >> $LUA_OUTPUT_FILE
 for key in "${!MESSAGE_IDS[@]}"; do
     echo "    [\"$key\"] = ${MESSAGE_IDS[$key]}," >> $LUA_OUTPUT_FILE
 done
+for key in "${!MESSAGE_IDS[@]}"; do
+    echo "   [${MESSAGE_IDS[$key]}] = \"$key\"," >> $LUA_OUTPUT_FILE
+done
 echo "}" >> $LUA_OUTPUT_FILE
+
+echo "-- 本文件由脚本gen_pids.sh自动生成，禁止手动修改." > $LUA_OUTPUT_FILE2
+echo "return {" >> $LUA_OUTPUT_FILE2
+for key in "${!MESSAGE_IDS[@]}"; do
+    echo "    [${MESSAGE_IDS[$key]}] = \"${MESSAGE_SERVERS[${MESSAGE_IDS[$key]}]}\"," >> $LUA_OUTPUT_FILE2
+done
+echo "}" >> $LUA_OUTPUT_FILE2
 
 # 将当前的MESSAGE_IDS和MESSAGE_HASHES保存到TEMP_ID_FILE中
 declare -p MESSAGE_IDS > $TEMP_ID_FILE

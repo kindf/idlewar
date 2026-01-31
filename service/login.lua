@@ -1,59 +1,85 @@
 local skynet = require "skynet"
-local ls = require "snax.loginserver"
-local watchdog = ...
-
--- 登录用户
-local online_user = {}
-
-
-local stoping = false
-
-local server = {
-    host = "127.0.0.1",
-    port = skynet.getenv("login_port"),
-    multilogin = false,
-    name = "login_master",
-}
-
-function server.auth_handler(token)
-    local s, acc, pwd = string.match(token, "([^@]+)@(.+):(.+)")
-    skynet.error(string.format("try acc auth. server:%s, acc:%s, pwd:%s", s, acc, pwd))
-    assert(pwd == "password", "Invalid password")
-    return nil, acc
-end
-
-function server.login_handler(_, acc, _)
-    if stoping then
-        error("login failed because server is stoping. acc:"..acc)
-    end
-    local user = online_user[acc]
-    if user then
-        skynet.call(watchdog, "lua", "watchdog_logout", acc)
-        online_user[acc] = nil
-    else
-        skynet.error("account login. acc:", acc)
-    end
-
-    local subid = skynet.call(watchdog, "lua", "watchdog_login", acc, skynet.time())
-    assert(subid)
-
-    online_user[acc] = {subid = subid}
-    return subid
-end
+local netpack = require "skynet.netpack"
 
 local CMD = {}
 
-function CMD.logout(acc, subid)
-    local u = online_user[acc]
-    if u then
-        online_user[acc] = nil
-        skynet.error(string.format("%s@%s is logout", acc, subid))
+--登录状态
+local fd2LoginState = {
+    -- [fd] = {
+    --     state = xxx, -- 状态
+    --     token = xxx, -- token
+    --     timeout = xxx -- 超时
+    -- },
+}
+local LOGIN_CHECK_AUTH_STATE = 1
+local LOGIN_SUCCESS_STATE = 2
+
+--检查账号是否已经登录
+function CMD.CheckAccountLogin(fd, token)
+    local fdLoginState = fd2LoginState[fd]
+    if not fdLoginState then
+        return false
     end
+    if fdLoginState.state ~= LOGIN_SUCCESS_STATE then
+        return false
+    end
+    if fdLoginState.timeout < os.time() then
+        fdLoginState[fd] = nil
+        return false
+    end
+    if fdLoginState.token == token then
+        fdLoginState[fd] = nil
+        return true
+    end
+    return false
 end
 
-function server.command_handler(command, ...)
-    local f = CMD[command]
-    return f(...)
+--检查版本
+local function CheckVersion(fd, version)
+    local fdLoginState = fd2LoginState[fd]
+    if fdLoginState then
+        return false
+    end
+    -- 版本检查
+    if version then
+        fd2LoginState[fd] = { state = LOGIN_CHECK_AUTH_STATE, token = nil, timeout = nil}
+        return true
+    end
+    return false
+end
+RpcHelper.Register("login", "CheckVersion", CheckVersion)
+
+--登录认证
+function CMD.CheckAuth(fd, token)
+    local fdLoginState = fd2LoginState[fd]
+    if not fdLoginState then
+        return false
+    end
+    if fdLoginState.state ~= LOGIN_CHECK_AUTH_STATE then
+        return false
+    end
+    -- TODO: sdk token认证 && 生成新的服务器token
+    fdLoginState.state = LOGIN_SUCCESS_STATE
+    fdLoginState.token = token
+    fdLoginState.timeout = os.time() + 300
+    return true
 end
 
-ls(server) --服务启动
+local function Dispatch(fd, msgId, msgBody)
+    local msgName = PBMap[msgId]
+    assert(msgName)
+    local pbMsg = protobuf.decode(msgName, msgBody)
+
+    return msgIdx, msgName, pbMsg, netMsg
+end
+
+skynet.start(function()
+    skynet.dispatch("lua", function(session, source, cmd, subcmd, ...)
+        if cmd == "socket" then
+            Dispatch(cmd, subcmd, ...)
+        else
+            local f = assert(CMD[cmd])
+            skynet.ret(skynet.pack(f(subcmd, ...)))
+        end
+    end)
+end)

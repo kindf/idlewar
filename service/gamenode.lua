@@ -22,7 +22,7 @@ local function ServerGameworldInit()
 end
 
 skynet.start(function()
-    skynet.register(".main")
+    skynet.register(".gamenode")
     skynet.newservice("debug_console", skynet.getenv("debug_console_port"))
     ServerGameworldInit()
     cluster.reload(clusterConfig)
