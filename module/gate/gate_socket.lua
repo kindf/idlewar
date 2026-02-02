@@ -1,9 +1,8 @@
-local socket = require "skynet.socket"
 local GateMgr = require "gate.gate_mgr"
 local Pids = require "proto.pids"
 local Logger = require "public.logger"
-local RpcHelper = require "util.rpc_helper"
 local ClusterHelper = require "public.cluster_helper"
+local ProtocolHelper = require "public.protocol_helper"
 local SOCKET = {}
 
 local function Dispatch(c, protoId, msg)
@@ -23,7 +22,7 @@ local function Dispatch(c, protoId, msg)
 end
 
 local function DispatchData(c, msg)
-    local ok, err, buffMsg = xpcall(RpcHelper.UnpackHeader, debug.traceback, msg)
+    local ok, err, buffMsg = xpcall(ProtocolHelper.UnpackHeader, debug.traceback, msg)
     if not ok then
         GateMgr.CloseConnection(c.fd)
         return Logger.Error("协议解析失败 err:%s", err)

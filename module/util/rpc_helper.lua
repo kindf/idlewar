@@ -17,12 +17,4 @@ function RpcHelper.DispatchClientMessage(q, type, ...)
     end
 end
 
-local Logger = require "public.logger"
-function RpcHelper.UnpackHeader(msg)
-    Logger.Debug("[RpcHelper.UnpackHeader] msg:%s", msg)
-    local msgId = string.unpack(">h", msg, 1)
-    local buffMsg = msg:sub(3)
-    return msgId, buffMsg
-end
-
 return RpcHelper

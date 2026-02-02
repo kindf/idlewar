@@ -18,7 +18,7 @@ function M.assert_skynet_call(...)
     local ok, err = pcall(...)
     if not ok then
         skynet.error("assert_skynet_call error:", err)
-        skynet.sleep(1)
+        skynet.sleep(100)
         skynet.abort()
     end
 end

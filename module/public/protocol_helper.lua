@@ -1,5 +1,6 @@
 local lfs = require "lfs"
 local pb = require "pb"
+local Logger = require "public.logger"
 local ProtocolHelper = {}
 
 local protocolHandler = {}
@@ -34,5 +35,12 @@ function ProtocolHelper.RegisterProtocol()
         end
     end
 end
+
+function ProtocolHelper.UnpackHeader(msg)
+    local msgId = string.unpack(">h", msg, 1)
+    local buffMsg = msg:sub(3)
+    return msgId, buffMsg
+end
+
 
 return ProtocolHelper
