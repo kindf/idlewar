@@ -24,7 +24,7 @@ function ClusterHelper.SendClientMessage(fd, respId, resp)
     end
     local bodyLen = #msg
     assert(bodyLen <= lenLimit, "消息长度超出限制")
-    local pack = spack(">H h s", bodyLen, respId, msg)
+    local pack = spack(">h c"..bodyLen, respId, msg)
     return pcall(cluster.send, "gatenode", ".gatewatchdog", "SendClientMessage", fd, pack)
 end
 

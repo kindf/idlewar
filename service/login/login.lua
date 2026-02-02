@@ -65,6 +65,7 @@ local function C2SLoginAuth(req, resp)
     accountLoginState[account] = loginState
     resp.retCode = RetCode.SUCCESS
     resp.loginToken = loginToken
+    Logger.Debug("[C2SLoginAuth] 接受到Gate转发的协议 account:%s token:%s", account, token)
 end
 ProtocolHelper.RegisterRpcHandler(Pids["login.c2s_login_auth"], Pids["login.s2c_login_auth"], C2SLoginAuth)
 

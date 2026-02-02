@@ -23,9 +23,7 @@ local function Dispatch(c, protoId, msg)
 end
 
 local function DispatchData(c, msg)
-    local ok, err, buffMsg = xpcall(function()
-        return RpcHelper.UnpackHeader(msg)
-    end, debug.traceback)
+    local ok, err, buffMsg = xpcall(RpcHelper.UnpackHeader, debug.traceback, msg)
     if not ok then
         GateMgr.CloseConnection(c.fd)
         return Logger.Error("协议解析失败 err:%s", err)
@@ -47,6 +45,7 @@ end
 
 function SOCKET.error(fd, msg)
     GateMgr.CloseConnection(fd, "SOCKET_ERROR")
+    SOCKET.close(fd)
 end
 
 function SOCKET.warning(fd, size)
