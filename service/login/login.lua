@@ -1,11 +1,10 @@
 local skynet = require "skynet"
 require "skynet.manager"
-local ClusterHelper = require "public.cluster_helper"
 local Pids = require "proto.pids"
 local ProtocolHelper = require "public.protocol_helper"
 local Logger = require "public.logger"
-local pb = require "pb"
 local RetCode = require "proto.retcode"
+local ServiceHelper = require "public.service_helper"
 
 local CMD = {}
 
@@ -20,20 +19,20 @@ local accountLoginState = {
 local LOGIN_SUCCESS_STATE = 1
 
 --检查账号是否已经登录
-function CMD.CheckAccountLogin(fd, token)
-    local fdLoginState = accountLoginState[fd]
-    if not fdLoginState then
+function CMD.CheckAccountLoginSucc(acc, token)
+    local accLoginState = accountLoginState[acc]
+    if not accLoginState then
         return false
     end
-    if fdLoginState.state ~= LOGIN_SUCCESS_STATE then
+    if accLoginState.state ~= LOGIN_SUCCESS_STATE then
         return false
     end
-    if fdLoginState.timeout < os.time() then
-        fdLoginState[fd] = nil
+    if accLoginState.timeout < os.time() then
+        accLoginState[acc] = nil
         return false
     end
-    if fdLoginState.token == token then
-        fdLoginState[fd] = nil
+    if accLoginState.loginToken == token then
+        accLoginState[acc] = nil
         return true
     end
     return false
@@ -60,7 +59,7 @@ local function C2SLoginAuth(req, resp)
     local loginToken = "token"
     loginState = {}
     loginState.state = LOGIN_SUCCESS_STATE
-    loginState.token = loginToken
+    loginState.loginToken = loginToken
     loginState.timeout = os.time() + 300
     accountLoginState[account] = loginState
     resp.retCode = RetCode.SUCCESS
@@ -69,34 +68,11 @@ local function C2SLoginAuth(req, resp)
 end
 ProtocolHelper.RegisterRpcHandler(Pids["login.c2s_login_auth"], Pids["login.s2c_login_auth"], C2SLoginAuth)
 
--- 分发 Gate 转发过来的消息
-function CMD.DispatchClientMessage(fd, protoId, protoBody)
-    local protoName = Pids[protoId]
-    assert(protoName, "不存在的协议 protoId:" .. protoId)
-    local msg = pb.decode(protoName, protoBody)
-    local handler = ProtocolHelper.GetProtocolHandler(protoId)
-    if not handler then
-        return Logger.Error("协议处理函数不存在 protoId:" .. protoId)
-    end
-    if handler.type == "protocol" then
-        local ret, err = pcall(handler.handler, msg)
-        if not ret then
-            Logger.Error(err)
-        end
-    else
-        local resp = {}
-        local ret, err = pcall(handler.handler, msg, resp)
-        if not ret then
-            Logger.Error(err)
-        end
-        ClusterHelper.SendClientMessage(fd, handler.respProtoId, resp)
-    end
-    Logger.Debug("协议转发成功 protoId:%s", protoId)
-end
-
 function CMD.start()
     ProtocolHelper.RegisterProtocol()
 end
+
+CMD.DispatchClientMessage = ServiceHelper.DispatchClientMessage
 
 skynet.start(function()
     skynet.dispatch("lua", function(session, source, cmd, subcmd, ...)

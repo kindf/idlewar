@@ -1,0 +1,13 @@
+// TARGET_NODE gamenode
+syntax  = "proto3";
+package player_base;
+
+// 登录游戏
+message c2s_login_game {
+  string account = 1;
+  string loginToken = 2;
+}
+
+message s2c_login_game {
+  uint32 retCode = 1;
+}

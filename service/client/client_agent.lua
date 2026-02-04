@@ -49,17 +49,17 @@ local function C2S(protoName, data, callback)
     if callback then
         callback(resp)
     end
+    Logger.Debug("[C2S] protocol callback resp:%s", table.dump(resp))
 end
 
+local loginToken
 local function DoSomething()
     -- 检查版本
-    C2S("login.c2s_check_version", { version = "ac01c22155e4a7264482d8ddc71343b5" }, function(resp)
-        Logger.Debug("[DoSomething] c2s_check_version callback resp:%s", table.dump(resp))
-    end)
+    C2S("login.c2s_check_version", { version = "ac01c22155e4a7264482d8ddc71343b5" }, function(_) end)
     -- 登录认证
-    C2S("login.c2s_login_auth", { account = "test1", token = "token" }, function(resp)
-        Logger.Debug("[DoSomething] c2s_login_auth callback resp:%s", table.dump(resp))
-    end)
+    C2S("login.c2s_login_auth", { account = "test1", token = "token" }, function(resp) loginToken = resp.loginToken end)
+    -- 登录游戏
+    C2S("login.c2s_login_game", { account = "test1", loginToken = loginToken }, function(_) end)
 end
 
 local gatePort = skynet.getenv("gate_port")
