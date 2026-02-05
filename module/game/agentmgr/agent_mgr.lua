@@ -9,20 +9,20 @@ function AgentMgr.Init()
 end
 
 function AgentMgr.LoginGame(account, loginToken)
-    local loginSucc = cluster.call(".loginnode", ".login", "CheckAccountLoginSucc", account, loginToken)
+    local loginSucc = cluster.call("loginnode", ".login", "CheckAccountLoginSucc", account, loginToken)
     if not loginSucc then
         return RetCode.ACCOUNT_NOT_LOGIN
     end
-
     local agent = acc2Agent[account]
+    local uid
     if not agent then
         agent = skynet.newservice("agent", account)
         acc2Agent[account] = agent
-        skynet.call(agent, "lua", "start")
+        uid = skynet.call(agent, "lua", "Start", account)
     else
-        skynet.call(agent, "lua", "restart")
+        uid = skynet.call(agent, "lua", "Restart", account)
     end
-
+    uid2Agent[uid] = agent
     return RetCode.SUCCESS
 end
 

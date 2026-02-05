@@ -1,8 +1,11 @@
 local skynet = require "skynet.manager"
 local mongo = require "skynet.db.mongo"
+local ServiceHelper = require "public.service_helper"
+local Logger = require "public.logger"
+local CMD = ServiceHelper.CMD
 
 local client
-local CMD = {}
+local database = "idlewar"
 
 function CMD.connect(host, port, username, pwd)
     client = mongo.client({
@@ -17,47 +20,47 @@ function CMD.disconnect()
     client:disconnect()
 end
 
-function CMD.insert(args)
-    local db = client:getDB(args.database)
-    local c = db:getCollection(args.collection)
-    c:insert(args.doc)
+local function Insert(collection, doc)
+    local db = client:getDB(database)
+    local c = db:getCollection(collection)
+    c:insert(doc)
 end
 
-function CMD.insert_batch(args)
-    local db = client:getDB(args.database)
-    local c = db:getCollection(args.collection)
-    c:batch_insert(args.docs)
+local function InsertBatch(collection, docs)
+    local db = client:getDB(database)
+    local c = db:getCollection(collection)
+    c:batch_insert(docs)
 end
 
-function CMD.delete(args)
-    local db = client:getDB(args.database)
-    local c = db:getCollection(args.collection)
-    c:delete(args.selector, args.single)
+local function Delete(collection, selector, single)
+    local db = client:getDB(database)
+    local c = db:getCollection(collection)
+    c:delete(selector, single)
 end
 
-function CMD.drop(args)
-    local db = client:getDB(args.database)
+local function Drop(args)
+    local db = client:getDB(database)
     local r = db:runCommand("drop", args.collection)
     return r
 end
 
-function CMD.find_one(args)
-    local db = client:getDB(args.database)
-    local c = db:getCollection(args.collection)
-    local result = c:findOne(args.query, args.selector)
+local function FindOne(collection, query, selector)
+    local db = client:getDB(database)
+    local c = db:getCollection(collection)
+    local result = c:findOne(query, selector)
     return result
 end
 
-function CMD.find_all(args)
-    local db = client:getDB(args.database)
-    local c = db:getCollection(args.collection)
+local function FindAll(collection, query, selector, skip, limit)
+    local db = client:getDB(database)
+    local c = db:getCollection(collection)
     local result = {}
-    local cursor = c:find(args.query, args.selector)
-    if args.skip ~= nil then
-        cursor:skip(args.skip)
+    local cursor = c:find(query, selector)
+    if skip ~= nil then
+        cursor:skip(skip)
     end
-    if args.limit ~= nil then
-        cursor:limit(args.limit)
+    if limit ~= nil then
+        cursor:limit(limit)
     end
     while cursor:hasNext() do
         local document = cursor:next()
@@ -69,10 +72,10 @@ function CMD.find_all(args)
     end
 end
 
-function CMD.update(args)
-    local db = client:getDB(args.database)
-    local c = db:getCollection(args.collection)
-    c:update(args.selector, args.update, args.upsert, args.multi)
+local function Update(collection, selector, update, upsert, multi)
+    local db = client:getDB(database)
+    local c = db:getCollection(collection)
+    c:update(selector, update, upsert, multi)
 end
 
 function CMD.create_index(args)
@@ -83,19 +86,41 @@ function CMD.create_index(args)
 end
 
 function CMD.run_command(args)
-    local db = client:getDB(args.database)
+    local db = client:getDB(database)
     local result = db:runCommand(args)
     return result
+end
+
+function CMD.Insert(collection, doc)
+    assert(collection, "collection为空")
+    local ret, retData = pcall(Insert, collection, doc)
+    if not ret then
+        return Logger.Error("[mongodb] Insert 插入数据失败 collection:%s, err:%s", collection, retData)
+    end
+    return retData
+end
+
+function CMD.Update(collection, selector, update, upsert, multi)
+    assert(collection, "collection为空")
+    local ret, retData = pcall(Update, collection, selector, update, upsert, multi)
+    if not ret then
+        return Logger.Error("[mongodb] Update 更新数据失败 collection:%s, err:%s", collection, retData)
+    end
+    return retData
+end
+
+function CMD.FindOne(collection, query, selector)
+    assert(collection, "collection为空")
+    local ret, retData = pcall(FindOne, collection, query, selector)
+    if not ret then
+        return Logger.Error("[mongodb] FindOne 加载数据失败 collection:%s, err:%s", collection, retData)
+    end
+    return retData
 end
 
 skynet.start(function()
     skynet.register(".mongodb")
     skynet.dispatch("lua", function(_, _, cmd, ...)
-        local f = CMD[cmd]
-        if f then
-            skynet.ret(skynet.pack(f(...)))
-        else
-            skynet.error(string.format("Unknown command:%s", cmd))
-        end
+        ServiceHelper.DispatchCmd(cmd, ...)
     end)
 end)

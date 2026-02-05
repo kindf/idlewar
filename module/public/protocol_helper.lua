@@ -42,5 +42,4 @@ function ProtocolHelper.UnpackHeader(msg)
     return msgId, buffMsg
 end
 
-
 return ProtocolHelper

@@ -1,45 +1,28 @@
 local skynet = require "skynet.manager"
 
 local guid = 100000
-
 local CMD = {}
 
 local function heart_beat()
     local updater = {
-        ["$set"] = {guid = guid}
+        ["$set"] = { guid = guid }
     }
-    skynet.send(".mongodb", "lua", "update", {
-        database = "gametest",
-        collection = "global",
-        selector = {tbname = "guid"},
-        update = updater,
-        upsert = true,
-        multi = false,
-    })
+    skynet.send(".mongodb", "lua", "Update", "global", { tbname = "guid" }, updater, true, false)
     skynet.timeout(1000, heart_beat)
 end
 
 function CMD.start()
-    local result = skynet.call(".mongodb", "lua", "find_one", {
-        database = "gametest",
-        collection = "global",
-        query = {tbname = "guid"},
-        selector = {},
-    })
+    local ret, result = skynet.call(".mongodb", "lua", "FindOne", "global", { tbname = "guid" })
     -- 没有则插入
-    if not result then
-        skynet.call(".mongodb", "lua", "insert", {
-            database = "gametest",
-            collection = "global",
-            doc = {tbname = "guid", guid = guid},
-        })
+    if not ret then
+        result = {}
     end
 
-    guid = result.guid
+    guid = result.guid or guid
     skynet.timeout(1000, heart_beat)
 end
 
-function CMD.get_new_guid()
+function CMD.GenUid()
     guid = guid + 1
     return guid
 end

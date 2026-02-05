@@ -59,7 +59,7 @@ local function DoSomething()
     -- 登录认证
     C2S("login.c2s_login_auth", { account = "test1", token = "token" }, function(resp) loginToken = resp.loginToken end)
     -- 登录游戏
-    C2S("login.c2s_login_game", { account = "test1", loginToken = loginToken }, function(_) end)
+    C2S("player_base.c2s_login_game", { account = "test1", loginToken = loginToken }, function(_) end)
 end
 
 local gatePort = skynet.getenv("gate_port")

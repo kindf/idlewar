@@ -1,3 +1,5 @@
+include "config.path"
+include "config.db"
 -- 线程个数
 thread = 8
 
@@ -14,22 +16,9 @@ agent_login_min = 1000
 --保存间隔
 user_save_interval = 60 * 5
 
---db配置
-db_host = "127.0.0.1"
-db_port = 27017
-db_uname = "kindf"
-db_pwd = "ljl123456"
-
 --gameworld端口
 login_port = 9999
 gate_port = 8888
 debug_console_port = 7777
 
--- 路径设置
-root = "./"
-luaservice = root.."service/?.lua;"..root.."skynet/service/?.lua;"..root.."service/test/?.lua;"
-lualoader = root .. "skynet/lualib/loader.lua"
-lua_path = root.."?.lua;"..root.."module/?.lua;"..root.."skynet/lualib/?.lua"
-lua_cpath = root .. "skynet/luaclib/?.so;"..root.."lualib/lib/?.so"
-cpath = root.."skynet/cservice/?.so"
-snax = root.."service/?.lua"
+luaservice = luaservice..root.."service/game/?.lua;"

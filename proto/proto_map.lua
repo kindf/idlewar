@@ -32,6 +32,7 @@ RegisterLoginNodeProto("login.c2s_login_auth")
 -- 注册 Game Server 的协议
 RegisterGameNodeProto("battle.c2s_battle", false)
 RegisterGameNodeProto("battle.c2s_echo", false)
+RegisterGameNodeProto("player_base.c2s_login_game", false)
 
 function ProtoMap.GetProtoInfo(protoId)
     return ProtoMap[protoId]

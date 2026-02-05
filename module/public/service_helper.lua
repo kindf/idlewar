@@ -37,11 +37,10 @@ end
 
 function ServiceHelper.DispatchCmd(cmd, ...)
     local f = ServiceHelper.CMD[cmd]
-    if f then
-        skynet.ret(skynet.pack(f(...)))
-    else
-        skynet.error("invalid cmd. cmd:%s", cmd)
+    if not f then
+        return Logger.Error("invalid cmd. cmd:%s", cmd)
     end
+    skynet.ret(skynet.pack(pcall(f, ...)))
 end
 
 return ServiceHelper
