@@ -9,7 +9,7 @@ local ClusterHelper = {}
 function ClusterHelper.TransmitMessage(connection, protoId, protoMsg)
     local proto = ProtoMap.GetProtoInfo(protoId)
     local node = proto.node
-    local service = proto.service or connection.agentaddr
+    local service = proto.service or connection.agentAddr
     local succ, err = pcall(cluster.send, node, service, "DispatchClientMessage", connection.fd, protoId, protoMsg)
     return succ, err
 end

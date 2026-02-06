@@ -49,7 +49,7 @@ local function C2S(protoName, data, callback)
     if callback then
         callback(resp)
     end
-    Logger.Debug("[C2S] protocol callback resp:%s", table.dump(resp))
+    Logger.Debug("[C2S] protocol callback %s resp:%s", protoName, table.dump(resp))
 end
 
 local loginToken

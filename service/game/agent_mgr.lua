@@ -8,12 +8,15 @@ local Logger = require "public.logger"
 
 CMD.DispatchClientMessage = ServiceHelper.DispatchClientMessage
 
+-- 初始化
 function CMD.start()
     ProtocolHelper.RegisterProtocol()
     AgentMgr.Init()
+    Logger.Info("AgentMgr 初始化完成")
 end
 
---登录认证
+
+-- 注册协议处理器
 local function C2SLoginGame(req, resp)
     local account = req.account
     local loginToken = req.loginToken
@@ -21,6 +24,18 @@ local function C2SLoginGame(req, resp)
     Logger.Debug("C2SLoginGame account:%s retCode:%s", account, resp.retCode)
 end
 ProtocolHelper.RegisterRpcHandler(Pids["player_base.c2s_login_game"], Pids["player_base.s2c_login_game"], C2SLoginGame)
+
+
+-- 导出命令
+CMD.GetOnlinePlayers = AgentMgr.GetOnlinePlayers
+CMD.KickPlayer = AgentMgr.KickPlayer
+CMD.GetagentInfo = AgentMgr.GetagentInfo
+CMD.SendMessageToPlayer = AgentMgr.SendMessageToPlayer
+CMD.BroadcastMessage = AgentMgr.BroadcastMessage
+CMD.CleanupOfflinePlayers = AgentMgr.CleanupOfflinePlayers
+CMD.HeartbeatCheck = AgentMgr.HeartbeatCheck
+CMD.BindConnection = AgentMgr.BindConnection
+CMD.Logout = AgentMgr.Logout
 
 skynet.start(function()
     skynet.dispatch("lua", function(session, source, cmd, subcmd, ...)

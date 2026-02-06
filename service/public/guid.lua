@@ -1,7 +1,8 @@
 local skynet = require "skynet.manager"
+local ServiceHelper = require "public.service_helper"
+local CMD = ServiceHelper.CMD
 
 local guid = 100000
-local CMD = {}
 
 local function heart_beat()
     local updater = {
@@ -30,11 +31,6 @@ end
 skynet.start(function()
     skynet.register(".guid")
     skynet.dispatch("lua", function(_, _, cmd, ...)
-        local f = CMD[cmd]
-        if f then
-            skynet.ret(skynet.pack(f(...)))
-        else
-            skynet.error(string.format("Unknown command:%s", cmd))
-        end
+        ServiceHelper.DispatchCmd(cmd, ...)
     end)
 end)
