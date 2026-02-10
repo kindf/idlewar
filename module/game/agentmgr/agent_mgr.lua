@@ -2,18 +2,14 @@ local skynet = require "skynet"
 local cluster = require "skynet.cluster"
 local RetCode = require "proto.retcode"
 local Logger = require "public.logger"
-local ServiceHelper = require "public.service_helper"
-local ProtocolHelper = require "public.protocol_helper"
-local CMD = ServiceHelper.CMD
+local DEFINE = require "public.define"
+local ClusterHelper = require "public.cluster_helper"
 
 local AgentMgr = {}
 -- 玩家数据管理
 local acc2Agent = {}          -- account->agent地址
 local uid2Agent = {}          -- uid->agent地址
 local agent2Info = {}         -- agent地址->玩家信息
-
-local ONLINE_AGENT_STATE = 1  -- 在线
-local OFFLINE_AGENT_STATE = 2 -- 离线
 
 function AgentMgr.Init()
     Logger.Info("AgentMgr 初始化")
@@ -25,7 +21,7 @@ local function CreateagentInfo(account, uid, agentAddr, state)
         account = account,
         uid = uid,
         agentAddr = agentAddr,
-        state = state or ONLINE_AGENT_STATE,
+        state = state or DEFINE.AGENT_STATE.ONLINE_AGENT_STATE,
         loginTime = os.time(),
         lastActiveTime = os.time(),
         ip = nil,
@@ -55,7 +51,7 @@ function AgentMgr.LoginGame(account, loginToken)
         agentAddr = skynet.newservice("agent")
 
         -- 启动agent
-        local ok, result = pcall(skynet.call, agentAddr, "lua", "Start", account)
+        local ok, result = skynet.call(agentAddr, "lua", "Start", account)
         if not ok or not result then
             Logger.Error("启动agent失败 account:%s, err:%s", account, result)
             skynet.kill(agentAddr)
@@ -70,7 +66,7 @@ function AgentMgr.LoginGame(account, loginToken)
         end
 
         -- 记录玩家信息
-        agentInfo = CreateagentInfo(account, uid, agentAddr, ONLINE_AGENT_STATE)
+        agentInfo = CreateagentInfo(account, uid, agentAddr, DEFINE.AGENT_STATE.ONLINE_AGENT_STATE)
         acc2Agent[account] = agentInfo
         uid2Agent[uid] = agentInfo
         agent2Info[agentAddr] = agentInfo
@@ -80,7 +76,7 @@ function AgentMgr.LoginGame(account, loginToken)
     -- 已有agent，重新启动（重连）
     Logger.Debug("玩家重连 account:%s", account)
 
-    if agentInfo.state == ONLINE_AGENT_STATE then
+    if agentInfo.state == DEFINE.AGENT_STATE.ONLINE_AGENT_STATE then
         -- 如果玩家已经在线，可能是多设备登录，踢掉旧连接
         Logger.Warning("玩家已在其他地方登录，踢掉旧连接 account:%s", account)
         if agentInfo.fd then
@@ -97,7 +93,7 @@ function AgentMgr.LoginGame(account, loginToken)
     end
 
     uid = agentInfo.uid
-    agentInfo.state = ONLINE_AGENT_STATE
+    agentInfo.state = DEFINE.AGENT_STATE.ONLINE_AGENT_STATE
     agentInfo.loginTime = os.time()
     agentInfo.lastActiveTime = os.time()
 
@@ -155,7 +151,7 @@ function AgentMgr.Logout(account, uid, reason)
     end
 
     -- 设置状态为离线
-    agentInfo.state = OFFLINE_AGENT_STATE
+    agentInfo.state = DEFINE.AGENT_STATE.OFFLINE_AGENT_STATE
     agentInfo.logoutTime = os.time()
     agentInfo.logoutReason = reason
     agentInfo.fd = nil
@@ -163,7 +159,7 @@ function AgentMgr.Logout(account, uid, reason)
 
     -- 清理数据结构（延迟清理，避免频繁登录登出）
     skynet.timeout(500, function()
-        if agentInfo.state == OFFLINE_AGENT_STATE then
+        if agentInfo.state == DEFINE.AGENT_STATE.OFFLINE_AGENT_STATE then
             acc2Agent[agentInfo.account] = nil
             uid2Agent[agentInfo.uid] = nil
             agent2Info[agentInfo.agentAddr] = nil
@@ -181,7 +177,7 @@ end
 -- 强制踢出玩家
 function AgentMgr.KickPlayer(account, reason)
     local agentInfo = acc2Agent[account]
-    if not agentInfo or agentInfo.state ~= ONLINE_AGENT_STATE then
+    if not agentInfo or agentInfo.state ~= DEFINE.AGENT_STATE.ONLINE_AGENT_STATE then
         return RetCode.PLAYER_NOT_ONLINE
     end
 
@@ -202,7 +198,7 @@ end
 function AgentMgr.GetOnlinePlayers()
     local onlinePlayers = {}
     for account, agentInfo in pairs(acc2Agent) do
-        if agentInfo.state == ONLINE_AGENT_STATE then
+        if agentInfo.state == DEFINE.AGENT_STATE.ONLINE_AGENT_STATE then
             table.insert(onlinePlayers, {
                 account = account,
                 uid = agentInfo.uid,
@@ -265,7 +261,7 @@ function AgentMgr.CleanupOfflinePlayers(maxOfflineTime)
     local cleanedCount = 0
 
     for agentAddr, agentInfo in pairs(agent2Info) do
-        if agentInfo.state == OFFLINE_AGENT_STATE and
+        if agentInfo.state == DEFINE.AGENT_STATE.OFFLINE_AGENT_STATE and
             agentInfo.logoutTime and
             (currentTime - agentInfo.logoutTime) > maxOfflineTime then
             -- 清理数据结构
@@ -292,7 +288,7 @@ end
 -- 更新玩家活跃时间
 function AgentMgr.UpdateActiveTime(account)
     local agentInfo = acc2Agent[account]
-    if agentInfo and agentInfo.state == ONLINE_AGENT_STATE then
+    if agentInfo and agentInfo.state == DEFINE.AGENT_STATE.ONLINE_AGENT_STATE then
         agentInfo.lastActiveTime = os.time()
         return true
     end
@@ -306,7 +302,7 @@ function AgentMgr.HeartbeatCheck()
 
     -- 检查长时间无心跳的玩家（5分钟）
     for account, agentInfo in pairs(acc2Agent) do
-        if agentInfo.state == ONLINE_AGENT_STATE and
+        if agentInfo.state == DEFINE.AGENT_STATE.ONLINE_AGENT_STATE and
             (currentTime - agentInfo.lastActiveTime) > 300 then
             table.insert(timeoutPlayers, account)
         end
@@ -320,8 +316,32 @@ function AgentMgr.HeartbeatCheck()
 
     -- 清理离线玩家
     AgentMgr.CleanupOfflinePlayers(1800) -- 30分钟
-
     return #timeoutPlayers
+end
+
+function AgentMgr.PlayerConnect(account, loginToken, fd)
+    local verifyResult = ClusterHelper.CallGateNode("VerifyToken", account, loginToken)
+    if not verifyResult then
+        Logger.Error("PlayerConnect 验证token失败 account:%s", account)
+        return false
+    end
+    local agent = acc2Agent[account]
+    if agent then
+        Logger.Warning("PlayerConnect 重复登录 account:%s", account)
+        skynet.send(agent.agentAddr, "lua", "KickPlayer", "顶号登录")
+    end
+    agent = skynet.newservice("agent")
+    local ret, uid = skynet.call(agent, "lua", "Start", account)
+    if not ret then
+        Logger.Error("PlayerConnect 启动agent失败 account:%s", account)
+        skynet.kill(agent)
+        return false
+    end
+
+    acc2Agent[account] = CreateagentInfo(account, uid, agent, DEFINE.AGENT_STATE.ONLINE_AGENT_STATE)
+    uid2Agent[uid] = acc2Agent[account]
+    agent2Info[agent] = acc2Agent[account]
+    return true, uid
 end
 
 return AgentMgr

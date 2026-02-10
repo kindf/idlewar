@@ -28,4 +28,16 @@ function ClusterHelper.SendClientMessage(fd, respId, resp)
     return pcall(cluster.send, "gatenode", ".gatewatchdog", "SendClientMessage", fd, pack)
 end
 
+function ClusterHelper.SendGateNode(service, cmd, ...)
+    return pcall(cluster.send, ".gatenode", service, cmd, ...)
+end
+
+function ClusterHelper.CallGateNode(service, cmd, ...)
+    return pcall(cluster.call, ".gatenode", service, cmd, ...)
+end
+
+function ClusterHelper.CallGameAgentMgr(cmd, ...)
+    return pcall(cluster.call, ".gamenode", ".agentmgr", cmd, ...)
+end
+
 return ClusterHelper

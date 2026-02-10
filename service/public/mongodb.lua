@@ -2,6 +2,7 @@ local skynet = require "skynet.manager"
 local mongo = require "skynet.db.mongo"
 local ServiceHelper = require "public.service_helper"
 local Logger = require "public.logger"
+local TableHelper = require "public.table_helpler"
 local CMD = ServiceHelper.CMD
 
 local client
@@ -93,15 +94,18 @@ end
 
 function CMD.Insert(collection, doc)
     assert(collection, "collection为空")
-    local ret, retData = pcall(Insert, collection, doc)
+    local ret, retData = pcall(Insert, collection, TableHelper.SerializeBsonFormat(doc))
     if not ret then
         return Logger.Error("[mongodb] Insert 插入数据失败 collection:%s, err:%s", collection, retData)
     end
     return retData
 end
 
-function CMD.Update(collection, selector, update, upsert, multi)
+function CMD.Update(collection, selector, data, upsert, multi)
     assert(collection, "collection为空")
+    local update = {
+        ["$set"] = TableHelper.SerializeBsonFormat(data),
+    }
     local ret, retData = pcall(Update, collection, selector, update, upsert, multi)
     if not ret then
         return Logger.Error("[mongodb] Update 更新数据失败 collection:%s, err:%s", collection, retData)
@@ -115,7 +119,7 @@ function CMD.FindOne(collection, query, selector)
     if not ret then
         return Logger.Error("[mongodb] FindOne 加载数据失败 collection:%s, err:%s", collection, retData)
     end
-    return retData
+    return retData and TableHelper.DeserializeBsonFormat(retData) or nil
 end
 
 skynet.start(function()

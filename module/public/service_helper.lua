@@ -22,13 +22,13 @@ function ServiceHelper.DispatchClientMessage(fd, protoId, protoBody)
     if handler.type == "protocol" then
         local ret, err = pcall(handler.handler, msg)
         if not ret then
-            Logger.Error(err)
+            return Logger.Error(err)
         end
     else
         local resp = {}
         local ret, err = pcall(handler.handler, msg, resp)
         if not ret then
-            Logger.Error(err)
+            return Logger.Error(err)
         end
         ClusterHelper.SendClientMessage(fd, handler.respProtoId, resp)
     end

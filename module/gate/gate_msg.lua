@@ -21,4 +21,7 @@ function CMD.SendClientMessage(fd, msg)
     Logger.Debug("[CMD.SendClientMessage] 发送消息 fd:%s", fd)
 end
 
+CMD.LoginResult = GateMgr.LoginResult
+CMD.VerifyToken = GateMgr.VerifyToken
+
 return CMD

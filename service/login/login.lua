@@ -4,7 +4,8 @@ local Pids = require "proto.pids"
 local ProtocolHelper = require "public.protocol_helper"
 local Logger = require "public.logger"
 local RetCode = require "proto.retcode"
-local ServiceHelper = require "public.service_helper"
+local ClusterHelper = require "public.cluster_helper"
+local Pb = require "pb"
 
 local CMD = {}
 
@@ -17,6 +18,33 @@ local accountLoginState = {
     -- },
 }
 local LOGIN_SUCCESS_STATE = 1
+
+function CMD.CheckVersion(acc)
+end
+
+function CMD.CheckAuth(msg)
+    local ret, req = pcall(Pb.decode, "login.c2s_login_auth", msg)
+    local resp = {
+        retCode = RetCode.SUCCESS,
+        loginToken = nil,
+        account = nil,
+    }
+    repeat
+        if not ret then
+            resp.retCode = RetCode.PROTO_DECODE_ERROR
+            Logger.Error("[CMD.CheckAuth] 协议解析失败 err:%s", req)
+            break
+        end
+        -- TODO: sdk token认证
+        local token = req.token
+        local account = req.account
+
+        local loginToken = string.format("loginToken_%s_%s_%s", account, os.time(), math.random(10000, 99999))
+        resp.loginToken = loginToken
+        resp.account = account
+    until true
+    return resp
+end
 
 --检查账号是否已经登录
 function CMD.CheckAccountLoginSucc(acc, token)
@@ -50,29 +78,30 @@ local function C2SLoginAuth(req, resp)
     local account = req.account
     local token = req.token
     local loginState = accountLoginState[account]
-    -- 已在登录
-    if loginState then
-        resp.retCode = RetCode.FAILED
-        return
-    end
-    -- TODO: sdk token认证 && 生成新的服务器token
-    local loginToken = "token"
-    loginState = {}
-    loginState.state = LOGIN_SUCCESS_STATE
-    loginState.loginToken = loginToken
-    loginState.timeout = os.time() + 300
-    accountLoginState[account] = loginState
-    resp.retCode = RetCode.SUCCESS
-    resp.loginToken = loginToken
+    repeat
+        -- 已在登录
+        if loginState then
+            resp.retCode = RetCode.FAILED
+            return
+        end
+        -- TODO: sdk token认证 && 生成新的服务器token
+        local loginToken = "loginToken"
+        loginState = {}
+        loginState.state = LOGIN_SUCCESS_STATE
+        loginState.loginToken = loginToken
+        loginState.timeout = os.time() + 300
+        accountLoginState[account] = loginState
+        resp.retCode = RetCode.SUCCESS
+        resp.loginToken = loginToken
+    until true
+    ClusterHelper.SendGateNode(".gatewatchdog", resp.fd, resp)
     Logger.Debug("[C2SLoginAuth] 接受到Gate转发的协议 account:%s token:%s", account, token)
 end
-ProtocolHelper.RegisterRpcHandler(Pids["login.c2s_login_auth"], Pids["login.s2c_login_auth"], C2SLoginAuth)
+ProtocolHelper.RegisterProtocolHandler(Pids["login.c2s_login_auth"], C2SLoginAuth)
 
 function CMD.start()
     ProtocolHelper.RegisterProtocol()
 end
-
-CMD.DispatchClientMessage = ServiceHelper.DispatchClientMessage
 
 skynet.start(function()
     skynet.dispatch("lua", function(session, source, cmd, subcmd, ...)

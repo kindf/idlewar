@@ -1,6 +1,5 @@
 local lfs = require "lfs"
 local pb = require "pb"
-local Logger = require "public.logger"
 local ProtocolHelper = {}
 
 local protocolHandler = {}
