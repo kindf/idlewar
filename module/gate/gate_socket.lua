@@ -6,21 +6,31 @@ local ProtocolHelper = require "public.protocol_helper"
 local DEFINE = require "define"
 local SOCKET = {}
 
-local function HandleReconnect(fd)
-    local c = GateMgr.GetConnection(fd)
-    if c then
-        c.lastActiveTime = os.time()
+local DispatchFunc = {}
+DispatchFunc[Pids["login.c2s_check_version"]] = function(conn, protoId, msg)
+    GateMgr.HandleLoginCheckVersion(conn, protoId, msg)
+end
+
+DispatchFunc[Pids["login.c2s_login_auth"]] = function(conn, protoId, msg)
+    GateMgr.HandleLoginCheckAuth(conn, protoId, msg)
+end
+
+DispatchFunc[Pids["player_base.c2s_enter_game"]] = function(conn, protoId, msg)
+    GateMgr.HandleEnterGame(conn, protoId, msg)
+end
+
+local function DispatchGame(conn, protoId, msg)
+    if conn.status == DEFINE.CONNECTION_STATUS.GAMING then
+        local succ, err = ClusterHelper.TransmitMessage(conn, protoId, msg)
+        if not succ then
+            return Logger.Error("协议转发失败 pid:%s err:%s", protoId, err)
+        end
+    else
+        Logger.Error("协议非法 fd:%s, pid:%s", conn.fd, protoId)
     end
 end
 
-local function HandleHeartbeat(fd)
-    local c = GateMgr.GetConnection(fd)
-    if c then
-        c.lastActiveTime = os.time()
-    end
-end
-
-local function Dispatch(c, protoId, msg)
+local function Dispatch(conn, protoId, msg)
     if not protoId then
         return Logger.Error("不存在的协议号 pid:%s", protoId)
     end
@@ -29,26 +39,13 @@ local function Dispatch(c, protoId, msg)
         return Logger.Error("不存在的协议号 pid:%s", protoId)
     end
 
-    local fd = c.fd
+    local fd = conn.fd
     assert(fd, "不存在的fd")
-    if protoId == Pids["login.c2s_check_version"] then
-        GateMgr.HandleLoginCheckVersion(fd, protoId, msg)
-    elseif protoId == Pids["login.c2s_login_auth"] then
-        GateMgr.HandleLoginCheckAuth(fd, protoId, msg)
-    elseif protoId == Pids["login.c2s_reconnect"] then
-        HandleReconnect(fd)
-    elseif protoId == Pids["gate.c2s_heartbeat"] then
-        HandleHeartbeat(fd)
-    elseif c.status == DEFINE.CONNECTION_STATUS.GAMING then
-        local succ, err = ClusterHelper.TransmitMessage(c, protoId, msg)
-        if not succ then
-            return Logger.Error("协议转发失败 pid:%s err:%s", protoId, err)
-        end
-        Logger.Debug("协议转发成功 pid:%s", protoId)
-    else
-        Logger.Error("协议非法 pid:%s", protoId)
-
+    local func = DispatchFunc[protoId] or DispatchGame
+    if not func then
+        return Logger.Error("不存在的协议号 pid:%s", protoId)
     end
+    func(conn, protoId, msg)
 end
 
 function SOCKET.open(fd, ip)
@@ -76,16 +73,16 @@ end
 
 function SOCKET.data(fd, msg)
     Logger.Debug("[SOCKET.data] 收到数据 fd:%d", fd)
-    local c = GateMgr.GetConnection(fd)
-    if not c then
+    local conn = GateMgr.GetConnection(fd)
+    if not conn then
         return
     end
     local ok, err, buffMsg = xpcall(ProtocolHelper.UnpackHeader, debug.traceback, msg)
     if not ok then
-        GateMgr.CloseConnection(c.fd)
+        GateMgr.CloseConnection(conn.fd)
         return Logger.Error("协议解析失败 err:%s", err)
     end
-    Dispatch(c, err, buffMsg)
+    Dispatch(conn, err, buffMsg)
 end
 
 return SOCKET

@@ -24,7 +24,7 @@ end
 local function Insert(collection, doc)
     local db = client:getDB(database)
     local c = db:getCollection(collection)
-    c:insert(doc)
+    c:insertOne(doc)
 end
 
 local function InsertBatch(collection, docs)

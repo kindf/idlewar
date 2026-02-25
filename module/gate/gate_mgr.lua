@@ -4,6 +4,7 @@ local socket = require "skynet.socket"
 local skynet = require "skynet"
 local ClusterHelper = require "public.cluster_helper"
 local DEFINE = require "define"
+local RetCode = require "proto.retcode"
 local GateMgr = {}
 local gate
 
@@ -64,6 +65,7 @@ function GateMgr.CloseFd(fd, reason)
     skynet.call(gate, "lua", "kick", fd)
 end
 
+-- 发送客户端消息
 function GateMgr.SendClientMessage(fd, msg)
     local connection = fd2Connection[fd]
     if not connection then
@@ -122,7 +124,14 @@ local function ConnectGameWorld(fd, account)
     end
 end
 
-function GateMgr.HandleLoginCheckAuth(conn, protoId, msg)
+function GateMgr.HandleLoginCheckVersion(conn, protoId, msg)
+    local ret = ClusterHelper.CallLoginNode(".login", "CheckVersion", msg)
+    local resp = {}
+    resp.retCode = ret and RetCode.SUCCESS or RetCode.FAILED
+    GateMgr.SendClientMessage(conn.fd, protoId, resp)
+end
+
+function GateMgr.HandleLoginCheckAuth(conn, _, msg)
     conn.status = DEFINE.CONNECTION_STATUS.LOGINING
     local result = ClusterHelper.CallLoginNode(".login", "CheckAuth", msg)
     -- 认证成功
@@ -134,11 +143,9 @@ function GateMgr.HandleLoginCheckAuth(conn, protoId, msg)
             expireTime = os.time() + 300,
         }
         account2Connection[result.account] = conn
-        ConnectGameWorld(conn.fd, result.account)
     else
         conn.status = DEFINE.CONNECTION_STATUS.CONNECTED
     end
 end
-
 
 return GateMgr
