@@ -11,7 +11,7 @@ local ServiceHelper = {}
 ServiceHelper.CMD = {}
 
 -- 分发 Gate 转发过来的消息
-function ServiceHelper.DispatchClientMessage(fd, protoId, protoBody)
+local function DispatchClientMessage(fd, protoId, protoBody)
     local protoName = Pids[protoId]
     assert(protoName, "不存在的协议 protoId:" .. protoId)
     local msg = pb.decode(protoName, protoBody)
@@ -43,5 +43,7 @@ function ServiceHelper.DispatchCmd(cmd, ...)
     end
     skynet.ret(skynet.pack(pcall(f, ...)))
 end
+
+ServiceHelper.CMD.DispatchClientMessage = DispatchClientMessage
 
 return ServiceHelper

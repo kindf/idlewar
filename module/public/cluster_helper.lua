@@ -1,8 +1,7 @@
 local cluster = require "skynet.cluster"
 local ProtoMap = require "proto.proto_map"
-local Pb = require "pb"
 local Pids = require "proto.pids"
-local Logger = require "public.logger"
+local ProtocolHelper = require "public.protocol_helper"
 local ClusterHelper = {}
 
 -- Gate 转发消息
@@ -14,30 +13,26 @@ function ClusterHelper.TransmitMessage(connection, protoId, protoMsg)
     return succ, err
 end
 
-local spack = string.pack
 -- 2M - 4
-local lenLimit = 65535 - 4
 function ClusterHelper.SendClientMessage(fd, respId, resp)
-    local ret, msg = pcall(Pb.encode, Pids[respId], resp)
-    if not ret then
-        return Logger.Error("消息编码失败 err:%s", msg)
-    end
-    local bodyLen = #msg
-    assert(bodyLen <= lenLimit, "消息长度超出限制")
-    local pack = spack(">h c"..bodyLen, respId, msg)
-    return pcall(cluster.send, "gatenode", ".gatewatchdog", "SendClientMessage", fd, pack)
+    local pack = ProtocolHelper.Encode(Pids[respId], resp)
+    return pcall(cluster.call, "gatenode", ".gatewatchdog", "SendClientMessage", fd, pack)
 end
 
 function ClusterHelper.SendGateNode(service, cmd, ...)
-    return pcall(cluster.send, ".gatenode", service, cmd, ...)
+    return pcall(cluster.send, "gatenode", service, cmd, ...)
 end
 
 function ClusterHelper.CallGateNode(service, cmd, ...)
-    return pcall(cluster.call, ".gatenode", service, cmd, ...)
+    return pcall(cluster.call, "gatenode", service, cmd, ...)
 end
 
 function ClusterHelper.CallGameAgentMgr(cmd, ...)
-    return pcall(cluster.call, ".gamenode", ".agentmgr", cmd, ...)
+    return pcall(cluster.call, "gamenode", ".agentmgr", cmd, ...)
+end
+
+function ClusterHelper.CallLoginNode(service, cmd, ...)
+    return pcall(cluster.call, "loginnode", service, cmd, ...)
 end
 
 return ClusterHelper

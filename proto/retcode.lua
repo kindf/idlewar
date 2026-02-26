@@ -14,5 +14,8 @@ RetCode.RESTART_AGENT_ERROR = 203 -- 重启agent失败
 RetCode.INVALID_TOKEN = 204 -- 无效token
 RetCode.ACCOUNT_NOT_EXIST = 205 -- 账号不存在
 RetCode.ACCOUNT_CREATE_REPEATED = 206 -- 账号创建重复
+RetCode.VERSION_NOT_CHECKED = 207 -- 版本未检测
+RetCode.CHECK_VERSION_FAILED = 208 -- 版本检测失败
+RetCode.GEN_UID_ERROR = 209 -- 生成uid失败
 
 return RetCode

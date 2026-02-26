@@ -11,3 +11,24 @@ message c2s_enter_game {
 message s2c_enter_game {
   uint32 retCode = 1;
 }
+
+// 查询uid
+message c2s_query_uid {
+  string account = 1;
+}
+
+message s2c_query_uid {
+  uint32 retCode = 1;
+  optional uint32 uid = 2;
+}
+
+// 创建角色
+message c2s_create_role {
+  string account = 1;
+  string loginToken = 2;
+  string name = 3;
+}
+
+message s2c_create_role {
+  uint32 retCode = 1;
+}

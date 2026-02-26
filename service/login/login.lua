@@ -3,21 +3,20 @@ local ProtocolHelper = require "public.protocol_helper"
 local Logger = require "public.logger"
 local RetCode = require "proto.retcode"
 local Pb = require "pb"
-
 local CMD = {}
 
 function CMD.CheckVersion()
-    return true
+    return RetCode.SUCCESS
 end
 
 function CMD.CheckAuth(msg)
-    local ret, req = pcall(Pb.decode, "login.c2s_login_auth", msg)
     local resp = {
         retCode = RetCode.SUCCESS,
         loginToken = nil,
         account = nil,
     }
     repeat
+        local ret, req = pcall(Pb.decode, "login.c2s_login_auth", msg)
         if not ret then
             resp.retCode = RetCode.PROTO_DECODE_ERROR
             Logger.Error("[CMD.CheckAuth] 协议解析失败 err:%s", req)
@@ -40,7 +39,6 @@ end
 
 skynet.start(function()
     skynet.dispatch("lua", function(session, source, cmd, subcmd, ...)
-        Logger.Debug("cmd:%s subcmd:%s", cmd, subcmd)
         local f = assert(CMD[cmd])
         skynet.ret(skynet.pack(f(subcmd, ...)))
     end)

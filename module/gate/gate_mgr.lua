@@ -3,8 +3,10 @@ local netpack = require "skynet.netpack"
 local socket = require "skynet.socket"
 local skynet = require "skynet"
 local ClusterHelper = require "public.cluster_helper"
-local DEFINE = require "define"
+local DEFINE = require "public.define"
 local RetCode = require "proto.retcode"
+local ProtocolHelper = require "public.protocol_helper"
+local Pids = require "proto.pids"
 local GateMgr = {}
 local gate
 
@@ -23,7 +25,7 @@ local function NewConnection(fd, ip)
         account = nil,
         closeReason = nil,
         loginToken = nil,
-        status = "connected",
+        status = DEFINE.CONNECTION_STATUS.CONNECTED,
     }
 end
 
@@ -33,6 +35,7 @@ function GateMgr.Init(ip, port)
         host = ip,
         port = port,
     })
+    ProtocolHelper.RegisterProtocol()
 end
 
 function GateMgr.GetConnection(fd)
@@ -74,78 +77,67 @@ function GateMgr.SendClientMessage(fd, msg)
     socket.write(fd, netpack.pack(msg))
 end
 
-function GateMgr.LoginResult(fd, retCode, account, loginToken)
-    local connection = fd2Connection[fd]
-    if not connection then
-        return Logger.Error("GateMgr.LoginResult 连接不存在 fd=%s", fd)
-    end
-    if not retCode then
-        connection.status = "connected"
-        return
-    end
-    connection.account = account
-    connection.loginToken = loginToken
-    tokenMap[loginToken] = {
-        account = account,
-        expireTime = os.time() + 300, -- 5min过期时间
-    }
-    account2Connection[account] = connection
-    local succ, uid = ClusterHelper.CallGameAgentMgr("PlayerConnect", account, loginToken, fd)
-    if not succ then
-        return Logger.Error("GateMgr.LoginResult PlayerConnect失败 account:%s", account)
-    end
-    uid2Connection[uid] = connection
-end
-
 function GateMgr.VerifyToken(account, loginToken)
     local tokenInfo = tokenMap[loginToken]
     local conn = account2Connection[account]
-    if tokenInfo and tokenInfo.account == account and os.time() < tokenInfo.expireTime 
+    if tokenInfo and tokenInfo.account == account and os.time() < tokenInfo.expireTime
         and conn then
         return true
     end
     return false
 end
 
-local function ConnectGameWorld(fd, account)
-    local conn = fd2Connection[fd]
-    if not conn then
-        return Logger.Error("GateMgr.ConnectGameWorld 连接不存在 fd=%s", fd)
-    end
-
-    local succ, uid = ClusterHelper.CallGameAgentMgr("PlayerConnect", fd, account)
-    if not succ then
-        return Logger.Error("GateMgr.ConnectGameWorld PlayerConnect失败 account:%s", account)
-    end
-    conn = uid2Connection[uid]
-    if conn then
-        uid2Connection[uid] = conn
-        conn.uid = uid
-    end
-end
-
-function GateMgr.HandleLoginCheckVersion(conn, protoId, msg)
-    local ret = ClusterHelper.CallLoginNode(".login", "CheckVersion", msg)
+function GateMgr.HandleLoginCheckVersion(conn, _, msg)
     local resp = {}
-    resp.retCode = ret and RetCode.SUCCESS or RetCode.FAILED
-    GateMgr.SendClientMessage(conn.fd, protoId, resp)
+    repeat
+        if conn.status ~= DEFINE.CONNECTION_STATUS.CONNECTED then
+            resp.retCode = RetCode.CHECK_VERSION_FAILED
+            break
+        end
+        local ret, result = ClusterHelper.CallLoginNode(".login", "CheckVersion", msg)
+        assert(ret, string.format("[GateMgr.HandleLoginCheckVersion] 远程调用失败 err:%s", result))
+        resp.retCode = result
+        if result == RetCode.SUCCESS then
+            conn.status = DEFINE.CONNECTION_STATUS.VERSION_CHECKED
+            break
+        end
+    until true
+    local pack = ProtocolHelper.Encode("login.s2c_check_version", resp)
+    GateMgr.SendClientMessage(conn.fd, pack)
 end
 
-function GateMgr.HandleLoginCheckAuth(conn, _, msg)
-    conn.status = DEFINE.CONNECTION_STATUS.LOGINING
-    local result = ClusterHelper.CallLoginNode(".login", "CheckAuth", msg)
-    -- 认证成功
-    if result.succ then
-        conn.status = DEFINE.CONNECTION_STATUS.AUTHED
-        conn.loginToken = result.loginToken
-        tokenMap[result.loginToken] = {
-            account = result.account,
-            expireTime = os.time() + 300,
-        }
-        account2Connection[result.account] = conn
-    else
-        conn.status = DEFINE.CONNECTION_STATUS.CONNECTED
+function GateMgr.HandleLoginAuth(conn, _, msg)
+    local resp = {}
+    local function f()
+        if conn.status ~= DEFINE.CONNECTION_STATUS.VERSION_CHECKED then
+            return RetCode.VERSION_NOT_CHECKED
+        end
+        conn.status = DEFINE.CONNECTION_STATUS.LOGINING
+        local ret, result = ClusterHelper.CallLoginNode(".login", "CheckAuth", msg)
+        assert(ret, string.format("[GateMgr.HandleLoginAuth] 远程调用失败 err:%s", result))
+        -- 认证成功
+        if result.retCode == RetCode.SUCCESS then
+            conn.status = DEFINE.CONNECTION_STATUS.AUTHED
+            conn.loginToken = result.loginToken
+            resp.loginToken = result.loginToken
+            tokenMap[result.loginToken] = {
+                account = result.account,
+                expireTime = os.time() + 300,
+            }
+            account2Connection[result.account] = conn
+        end
+        return result.retCode
     end
+    resp.retCode = f()
+    local pack = ProtocolHelper.Encode("login.s2c_login_auth", resp)
+    GateMgr.SendClientMessage(conn.fd, pack)
+end
+
+function GateMgr.SetConnectionGaming(account)
+    local conn = assert(account2Connection[account], string.format("[GateMgr.SetConnectionGaming] 连接不存在 account:%s", account))
+    conn.status = DEFINE.CONNECTION_STATUS.GAMING
+    uid2Connection[conn.uid] = conn
+    fd2Connection[conn.fd] = conn
 end
 
 return GateMgr

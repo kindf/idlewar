@@ -3,7 +3,7 @@ local Pids = require "proto.pids"
 local Logger = require "public.logger"
 local ClusterHelper = require "public.cluster_helper"
 local ProtocolHelper = require "public.protocol_helper"
-local DEFINE = require "define"
+local DEFINE = require "public.define"
 local SOCKET = {}
 
 local DispatchFunc = {}
@@ -12,15 +12,11 @@ DispatchFunc[Pids["login.c2s_check_version"]] = function(conn, protoId, msg)
 end
 
 DispatchFunc[Pids["login.c2s_login_auth"]] = function(conn, protoId, msg)
-    GateMgr.HandleLoginCheckAuth(conn, protoId, msg)
-end
-
-DispatchFunc[Pids["player_base.c2s_enter_game"]] = function(conn, protoId, msg)
-    GateMgr.HandleEnterGame(conn, protoId, msg)
+    GateMgr.HandleLoginAuth(conn, protoId, msg)
 end
 
 local function DispatchGame(conn, protoId, msg)
-    if conn.status == DEFINE.CONNECTION_STATUS.GAMING then
+    if conn.status == DEFINE.CONNECTION_STATUS.GAMING or conn.status == DEFINE.CONNECTION_STATUS.AUTHED then
         local succ, err = ClusterHelper.TransmitMessage(conn, protoId, msg)
         if not succ then
             return Logger.Error("协议转发失败 pid:%s err:%s", protoId, err)

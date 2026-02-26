@@ -10,9 +10,8 @@ local CMD = ServiceHelper.CMD
 local agentQueue = Queue()
 local timer = Timer.New()
 local playerDataInit = false
-local clientFd = nil
 
-local function LoadPlayerData(account)
+local function LoadPlayerData(account, uid)
     math.randomseed(os.time())
     -- 从数据库加载玩家数据
     local ret, data = skynet.call(".mongodb", "lua", "FindOne", "userdata", { account = account })
@@ -20,38 +19,29 @@ local function LoadPlayerData(account)
         Logger.Error("加载玩家数据失败 account:%s err:%s", account, data)
         return false
     end
-
-    -- 如果没有数据，创建新玩家
-    if not data then
-        data = {
-            account = account,
-            uid = skynet.call(".guid", "lua", "GenUid", "userdata"),
-            createTime = os.time(),
-            lastLoginTime = os.time(),
-            lastLogoutTime = 0,
-        }
-
-        -- 插入新玩家数据
-        local insertRet = skynet.call(".mongodb", "lua", "Insert", "userdata", data)
-        if not insertRet then
-            Logger.Error("创建玩家数据失败 account:%s", account)
-            return false
-        end
-
-        Logger.Info("创建新玩家 account:%s, uid:%d", account, data.uid)
-    else
-        -- 更新最后登录时间
-        data.lastLoginTime = os.time()
-        Logger.Info("玩家登录 account:%s, uid:%d", account, data.uid)
-    end
+    assert(data.uid == uid, string.format("UID不匹配 account:%s, uid:%d, playerUid:%d", account, uid, data.uid))
+    -- 更新最后登录时间
+    data.lastLoginTime = os.time()
+    Logger.Info("玩家登录 account:%s, uid:%d", account, data.uid)
     playerDataInit = true
     PlayerBase.Init(data)
-    return true, data.uid
+    return true
 end
 
-function CMD.Start(fd, account)
-    clientFd = fd
-    return LoadPlayerData(account)
+local function OnLoadEnd(relogin)
+end
+
+function CMD.Start(account, uid)
+    if not LoadPlayerData(account, uid) then
+        return false
+    end
+
+    OnLoadEnd(false)
+    return true
+end
+
+function CMD.Restart(account)
+    OnLoadEnd(true)
 end
 
 -- 分发客户端消息
@@ -60,7 +50,7 @@ function CMD.DispatchClientMessage(...)
         Logger.Error("尚未加载玩家数据")
         return
     end
-    ServiceHelper.DispatchClientMessage(...)
+    ServiceHelper.CMD.DispatchClientMessage(...)
 end
 
 skynet.start(function()

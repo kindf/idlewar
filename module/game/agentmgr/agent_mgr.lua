@@ -4,6 +4,7 @@ local RetCode = require "proto.retcode"
 local Logger = require "public.logger"
 local DEFINE = require "public.define"
 local ClusterHelper = require "public.cluster_helper"
+local ProtocolHelper = require "public.protocol_helper"
 
 local AgentMgr = {}
 -- 玩家数据管理
@@ -156,7 +157,7 @@ function AgentMgr.GetAgentByUid(uid)
 end
 
 -- 获取玩家信息
-function AgentMgr.GetagentInfo(account)
+function AgentMgr.GetAgentInfo(account)
     return acc2Agent[account]
 end
 
@@ -184,13 +185,14 @@ local function OnEnterGame(account, uid)
         Logger.Debug("创建新的agent account:%s", account)
         agentAddr = skynet.newservice("agent")
         local ok, result = skynet.call(agentAddr, "lua", "Start", account, uid)
-        if not ok then
+        if not ok or not result then
             Logger.Error("启动agent失败 account:%s, err:%s", account, result)
             skynet.kill(agentAddr)
             return RetCode.CREATE_AGENT_ERROR
         end
         agentInfo = CreateAgentInfo(account, uid, agentAddr, DEFINE.AGENT_STATE.ONLINE_AGENT_STATE)
-        return Logger.Info("新玩家登录成功 account:%s, uid:%d, agent:%s", account, uid, tostring(agentAddr))
+        Logger.Info("新玩家登录成功 account:%s, uid:%d, agent:%s", account, uid, tostring(agentAddr))
+        return RetCode.SUCCESS
     end
 
     Logger.Debug("玩家重连 account:%s", account)
@@ -205,18 +207,22 @@ local function OnEnterGame(account, uid)
     end
     -- 重新启动agent
     local ok, result = pcall(skynet.call, agentInfo.agentAddr, "lua", "Restart", account)
-    if not ok then
+    if not ok or not result then
         Logger.Error("重启agent失败 account:%s, err:%s", account, result)
+        skynet.kill(agentAddr)
         return RetCode.RESTART_AGENT_ERROR
     end
 
     uid = agentInfo.uid
     agentInfo.state = DEFINE.AGENT_STATE.ONLINE_AGENT_STATE
+    -- 更新 gate conn 状态
+    ClusterHelper.CallGateNode(".gatewatchdog", "SetConnectGaming", account)
     Logger.Info("玩家重连成功 account:%s, uid:%d", account, uid)
+    return RetCode.SUCCESS
 end
 
 function AgentMgr.EnterGame(account, loginToken)
-    local verifyResult = ClusterHelper.CallGateNode("VerifyToken", account, loginToken)
+    local verifyResult = ClusterHelper.CallGateNode(".gatewatchdog", "VerifyToken", account, loginToken)
     if not verifyResult then
         Logger.Error("EnterGame 验证token失败 account:%s", account)
         return RetCode.INVALID_TOKEN
@@ -230,14 +236,13 @@ function AgentMgr.EnterGame(account, loginToken)
     if not data then
         return RetCode.ACCOUNT_NOT_EXIST
     end
-    OnEnterGame(account, data.uid)
-    return RetCode.SUCCESS
+    return OnEnterGame(account, data.uid)
 end
 
-function AgentMgr.CreateAccount(account, loginToken, name)
-    local verifyResult = ClusterHelper.CallGateNode("VerifyToken", account, loginToken)
+function AgentMgr.CreateRole(account, loginToken, name)
+    local verifyResult = ClusterHelper.CallGateNode(".gatewatchdog", "VerifyToken", account, loginToken)
     if not verifyResult then
-        Logger.Error("CreateAccount 验证token失败 account:%s", account)
+        Logger.Error("CreateRole 验证token失败 account:%s", account)
         return RetCode.INVALID_TOKEN
     end
     local ret, data = skynet.call(".mongodb", "lua", "FindOne", "userdata", { account = account }, {uid = 1})
@@ -249,10 +254,15 @@ function AgentMgr.CreateAccount(account, loginToken, name)
     if data then
         return RetCode.ACCOUNT_CREATE_REPEATED
     end
+    local ret1, uid = skynet.call(".guid", "lua", "GenUid")
+    if not ret1 then
+        return RetCode.GEN_UID_ERROR
+    end
 
     local accountData = {
         account = account,
-        name = name
+        name = name,
+        uid = uid,
     }
     local succ, err = skynet.call(".mongodb", "lua", "InsertOne", "userdata", accountData)
     if not succ then
@@ -261,5 +271,39 @@ function AgentMgr.CreateAccount(account, loginToken, name)
     end
     return RetCode.SUCCESS
 end
+
+------------------------------------ 客户端 req ----------------------------------------------------
+
+-- 请求进入游戏
+local function C2SEnterGame(req, resp)
+    local account = req.account
+    local loginToken = req.loginToken
+    resp.retCode = AgentMgr.EnterGame(account, loginToken)
+    Logger.Debug("C2SEnterGame account:%s retCode:%s", account, resp.retCode)
+end
+ProtocolHelper.RegisterRpcHandler("player_base.c2s_enter_game", "player_base.s2c_enter_game", C2SEnterGame)
+
+-- 请求创建角色
+local function C2SCreateRole(req, resp)
+    local account = req.account
+    local loginToken = req.loginToken
+    local name = req.name
+    resp.retCode = AgentMgr.CreateRole(account, loginToken, name)
+    Logger.Debug("C2SCreateRole account:%s retCode:%s", account, resp.retCode)
+end
+ProtocolHelper.RegisterRpcHandler("player_base.c2s_create_role", "player_base.s2c_create_role", C2SCreateRole)
+
+local function C2SQueryUid(req, resp)
+    local account = req.account
+    local ret, data = skynet.call(".mongodb", "lua", "FindOne", "userdata", { account = account }, {uid = 1})
+    if not ret then
+        resp.retCode = RetCode.MONGODB_OPERATE_ERROR
+        return
+    end
+    resp.retCode = RetCode.SUCCESS
+    resp.uid = data and data.uid
+    Logger.Debug("C2SQueryUid account:%s uid:%s", account, resp.uid)
+end
+ProtocolHelper.RegisterRpcHandler("player_base.c2s_query_uid", "player_base.s2c_query_uid", C2SQueryUid)
 
 return AgentMgr

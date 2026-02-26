@@ -24,7 +24,7 @@ end
 local function Insert(collection, doc)
     local db = client:getDB(database)
     local c = db:getCollection(collection)
-    c:insertOne(doc)
+    c:insert(doc)
 end
 
 local function InsertBatch(collection, docs)
@@ -92,7 +92,7 @@ function CMD.run_command(args)
     return result
 end
 
-function CMD.Insert(collection, doc)
+function CMD.InsertOne(collection, doc)
     assert(collection, "collection为空")
     local ret, retData = pcall(Insert, collection, TableHelper.SerializeBsonFormat(doc))
     if not ret then

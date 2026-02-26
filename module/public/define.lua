@@ -10,9 +10,10 @@ Define.AGENT_SAVE_INTERVAL = 10
 
 Define.CONNECTION_STATUS = {
     CONNECTED = 1,
-    LOGINING = 2,
-    AUTHED = 3,
-    GAMING = 4,
+    VERSION_CHECKED = 2,
+    LOGINING = 3,
+    AUTHED = 4,
+    GAMING = 5,
 }
 
 return Define

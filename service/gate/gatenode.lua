@@ -11,7 +11,6 @@ local function ServerInit()
 end
 
 skynet.start(function()
-    skynet.register(".gatenode")
     skynet.newservice("debug_console", skynet.getenv("debug_console_port"))
     ServerInit()
     cluster.reload(clusterConfig)
