@@ -5,7 +5,7 @@ package player_base;
 // 进入游戏
 message c2s_enter_game {
   string account = 1;
-  string loginToken = 2;
+  string sessionId = 2;
 }
 
 message s2c_enter_game {

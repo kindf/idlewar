@@ -1,3 +1,4 @@
+local skynet = require "skynet"
 local GateMgr = require "gate.gate_mgr"
 local Pids = require "proto.pids"
 local Logger = require "public.logger"
@@ -15,8 +16,16 @@ DispatchFunc[Pids["login.c2s_login_auth"]] = function(session, protoId, msg)
     GateMgr:HandleLoginAuth(session, protoId, msg)
 end
 
+-- DispatchFunc[Pids["login.c2s_reconnect"]] = function(session, protoId, msg)
+--     GateMgr.HandleReconnect(session.fd, msg)
+-- end
+--
+-- DispatchFunc[Pids["login.c2s_logout"]] = function(session, protoId, msg)
+--     GateMgr.HandleLogout(session.fd, msg)
+-- end
+--
 local function DispatchGame(session, protoId, msg)
-    local status = session:GetStatus()
+    local status = session:GetState()
     if status == DEFINE.CONNECTION_STATUS.GAMING or status == DEFINE.CONNECTION_STATUS.AUTHED then
         local succ, err = ClusterHelper.TransmitMessage(session, protoId, msg)
         if not succ then
@@ -49,10 +58,8 @@ local function Dispatch(fd, protoId, msg)
 end
 
 function SOCKET.open(fd, ip)
-    local gateAccept = GateMgr:AddSession(fd, ip)
-    if gateAccept then
-        gateAccept()
-    end
+    local gate = GateMgr:AddSession(fd, ip)
+    skynet.call(gate, "lua", "accept", fd)
     Logger.Info("连接成功 fd:%d ip:%s", fd, ip)
 end
 

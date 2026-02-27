@@ -19,5 +19,5 @@ message c2s_login_auth {
 
 message s2c_login_auth {
   uint32 retCode = 1;
-  string loginToken = 2;
+  string sessionId = 2;
 }

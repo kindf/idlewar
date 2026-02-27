@@ -1,267 +1,197 @@
-local Logger = require "public.logger"
+local skynet = require "skynet"
 local netpack = require "skynet.netpack"
 local socket = require "skynet.socket"
-local skynet = require "skynet"
-local ClusterHelper = require "public.cluster_helper"
+local Logger = require "public.logger"
 local DEFINE = require "public.define"
 local RetCode = require "proto.retcode"
 local ProtocolHelper = require "public.protocol_helper"
-local SessionMgr = require "module.gate.session_mgr"
+local ClusterHelper = require "public.cluster_helper"
+local SessionMgr = require "gate.session_mgr"
+local TokenMgr = require "gate.token_mgr"
 local Timer = require "public.timer"
--- 常量定义
-local CONNECTION_STATUS = DEFINE.CONNECTION_STATUS
+local CONN_STATE = DEFINE.CONNECTION_STATUS
 
 local GateMgr = {
     gate = nil,
-    cleanupTimer = Timer.New(),
+    timer = Timer.New(),
     cleanupTimerId = nil,
 }
 
--- 初始化网关
 function GateMgr:Init(ip, port)
-    assert(ip and port, "GateMgr.Init: ip and port required")
     self.gate = skynet.newservice("gate")
     skynet.send(self.gate, "lua", "open", {
         host = ip,
         port = port,
     })
+
     ProtocolHelper.RegisterProtocol()
-    Logger.Info("GateMgr 初始化 on %s:%d", ip, port)
-    -- 启动定时清理任务（每30秒执行一次）
-    self.cleanupTimerId = self.cleanupTimer:Interval(30, function() GateMgr:CleanupTimer() end, false)
+    self.cleanupTimerId = self.timer:Interval(DEFINE.SESSION_CLEANUP_INTERVAL, function() GateMgr:CleanupTimer() end, false)
+    SessionMgr:SetGate(self.gate)
+    Logger.Info("GateMgr 初始化成功 on %s:%d", ip, port)
 end
 
--- 定时清理任务
 function GateMgr:CleanupTimer()
-    SessionMgr:CleanupExpiredSessions()
-    SessionMgr:CleanupExpiredTokens()
+    SessionMgr:Cleanup()
+    TokenMgr:Cleanup()
 
-    -- 定期输出统计信息
     local stats = SessionMgr:GetStats()
-    Logger.Info("GateMgr stats - active:%d tokens:%d created:%d closed:%d", stats.active, stats.tokens, stats.totalCreated, stats.totalClosed)
+    Logger.Info("GateMgr stats - active:%d waiting:%d",
+        stats.active, stats.waitingReconnect)
 end
 
--- 获取连接
+-- 连接管理
+function GateMgr:AddSession(fd, ip)
+    SessionMgr:Add(fd, ip)
+    return self.gate
+end
+
 function GateMgr:GetSession(fd)
     return SessionMgr:GetByFd(fd)
 end
 
--- 添加新连接
-function GateMgr:AddSession(fd, ip)
-    local session = SessionMgr:Add(fd, ip)
-    return function()
-        skynet.call(self.gate, "lua", "accept", fd)
-    end
-end
-
--- 关闭连接(接受到socket关闭的通知)
+-- fd关闭回调
 function GateMgr:CloseSession(fd, reason)
     SessionMgr:Close(fd, reason)
 end
 
--- 踢掉客户端(主动踢掉)
-function GateMgr:CloseFd(fd, reason)
-    SessionMgr:Close(fd, reason)
+-- 主动断开
+function GateMgr:CloseFd(fd)
     skynet.call(self.gate, "lua", "kick", fd)
 end
 
--- 发送消息给客户端
-function GateMgr:SendClientMessage(fd, msg)
+function GateMgr:SendMessage(fd, msg)
     local session = SessionMgr:GetByFd(fd)
     if not session then
-        Logger.Warn("GateMgr.SendClientMessage session not found fd=%s", fd)
+        Logger.Warn("GateMgr.SendMessage no session fd=%s", fd)
+        return false
+    end
+
+    local currentFd = session.fd
+    if currentFd ~= fd then
+        Logger.Debug("GateMgr.SendMessage fd changed: %s -> %s", fd, currentFd)
+    end
+
+    local ok, err = pcall(socket.write, currentFd, netpack.pack(msg))
+    if not ok then
+        Logger.Error("GateMgr.SendMessage failed fd=%s err=%s", currentFd, err)
+        SessionMgr:Close(currentFd, "send failed")
         return false
     end
 
     session:UpdateActiveTime()
-
-    local success, err = pcall(socket.write, fd, netpack.pack(msg))
-    if not success then
-        Logger.Error("GateMgr.SendClientMessage failed fd=%s err=%s", fd, err)
-        SessionMgr:Close(fd, "发送消息失败")
-        return false
-    end
-
     return true
 end
 
--- 验证Token
-function GateMgr:VerifyToken(account, loginToken)
-    return SessionMgr:VerifyToken(loginToken, account)
-end
-
--- 处理版本检查
+-- 检查版本号
 function GateMgr:HandleLoginCheckVersion(session, _, msg)
     local resp = { retCode = RetCode.SUCCESS }
     repeat
-        if not session or not msg then
-            Logger.Error("GateMgr.HandleLoginCheckVersion invalid params")
-            return
-        end
-
-        -- 状态验证
-        if session:GetStatus() ~= CONNECTION_STATUS.CONNECTED then
-            Logger.Warn("GateMgr.HandleLoginCheckVersion invalid state %s", session:ToLogString())
-            resp.retCode = RetCode.CHECK_VERSION_FAILED
+        if session:GetState() ~= CONN_STATE.INIT then
+            resp.retCode = RetCode.SESSION_STATE_ERROR
             break
         end
 
-        -- 远程调用
-        local success, result = ClusterHelper.CallLoginNode(".login", "CheckVersion", msg)
-        if not success then
-            Logger.Error("GateMgr.HandleLoginCheckVersion remote call failed %s", result)
+        local ok, result = ClusterHelper.CallLoginNode(".login", "CheckVersion", msg)
+        if not ok then
+            Logger.Error("GateMgr.HandleLoginCheckVersion rpc failed")
             resp.retCode = RetCode.SYSTEM_ERROR
             break
         end
 
         resp.retCode = result
-
-        -- 状态转换
         if result == RetCode.SUCCESS then
-            if not session:ChangeState(CONNECTION_STATUS.VERSION_CHECKED) then
-                resp.retCode = RetCode.SYSTEM_ERROR
+            ok = session:ChangeState(CONN_STATE.VERSION_CHECKED)
+            if not ok then
+                resp.retCode = RetCode.SESSION_STATE_ERROR
+                break
             end
         end
     until true
     local pack = ProtocolHelper.Encode("login.s2c_check_version", resp)
-    GateMgr:SendClientMessage(session:GetFd(), pack)
+    GateMgr:SendMessage(session.fd, pack)
 end
 
--- 处理登录认证
+-- 登录认证
 function GateMgr:HandleLoginAuth(session, _, msg)
     local resp = { retCode = RetCode.SUCCESS }
+
     repeat
-        if not session or not msg then
-            Logger.Error("GateMgr.HandleLoginAuth invalid params")
-            return
-        end
-
-        -- 状态验证
-        if session:GetStatus() ~= CONNECTION_STATUS.VERSION_CHECKED then
-            Logger.Warn("GateMgr.HandleLoginAuth invalid state %s", session:ToLogString())
-            resp.retCode = RetCode.VERSION_NOT_CHECKED
+        if not session:ChangeState(CONN_STATE.LOGINING) then
+            resp.retCode = RetCode.SESSION_STATE_ERROR
             break
         end
-
-        -- 转换到登录中状态
-        if not session:ChangeState(CONNECTION_STATUS.LOGINING) then
+        local ok, result = ClusterHelper.CallLoginNode(".login", "CheckAuth", msg)
+        if not ok then
+            Logger.Error("GateMgr.HandleLoginAuth rpc failed")
             resp.retCode = RetCode.SYSTEM_ERROR
+            session:ChangeState(CONN_STATE.VERSION_CHECKED)
             break
         end
 
-        -- 远程调用认证
-        local success, result = ClusterHelper.CallLoginNode(".login", "CheckAuth", msg)
-        if not success then
-            Logger.Error("GateMgr.HandleLoginAuth remote call failed %s", result)
-            resp.retCode = RetCode.SYSTEM_ERROR
-            session:ChangeState(CONNECTION_STATUS.VERSION_CHECKED) -- 回滚
-            break
-        end
-
-        -- 认证成功
         if result.retCode == RetCode.SUCCESS then
-            -- 生成Token
-            local loginToken = string.format("%s_%d_%d", result.account, os.time(), math.random(10000, 99999))
-
-            -- 绑定账号
-            SessionMgr:BindAccount(session:GetFd(), result.account)
-            session:SetLoginToken(loginToken)
-
-            -- 存储Token
-            SessionMgr:AddToken(loginToken, result.account)
-
-            -- 状态转换
-            session:ChangeState(CONNECTION_STATUS.AUTHED)
-
-            -- 填充响应
-            resp.loginToken = loginToken
-
-            Logger.Info("GateMgr.HandleLoginAuth success account=%s fd=%s",
-                result.account, session:GetFd())
+            local sessionId = SessionMgr:Authenticate(session:GetFd(), result.account)
+            if sessionId then
+                resp.sessionId = sessionId
+                TokenMgr:Add(sessionId, result.account)
+            else
+                resp.retCode = RetCode.FAILED
+            end
         else
-            -- 认证失败，回滚状态
-            session:ChangeState(CONNECTION_STATUS.VERSION_CHECKED)
+            session:ChangeState(CONN_STATE.VERSION_CHECKED)
+            resp.retCode = result.retCode
         end
-
-        resp.retCode = result.retCode
     until true
     local pack = ProtocolHelper.Encode("login.s2c_login_auth", resp)
-    GateMgr:SendClientMessage(session:GetFd(), pack)
+    GateMgr:SendMessage(session.fd, pack)
 end
 
--- 设置连接为游戏中状态
-function GateMgr:SetConnectionGaming(account)
-    local session = SessionMgr:GetByAccount(account)
+function GateMgr.HandleReconnect(fd, msg)
+    local sessionId = msg.sessionId
+    local account = msg.account
+
+    local session, err = SessionMgr:HandleReconnect(fd, sessionId, account)
+
+    local resp = { retCode = RetCode.SUCCESS }
     if not session then
-        Logger.Error("GateMgr.SetConnectionGaming session not found account:%s", account)
-        return false
+        resp.retCode = RetCode.RECONNECT_FAILED
+        resp.msg = err or "reconnect failed"
+    else
+        resp.retCode = RetCode.SUCCESS
+        resp.sessionId = sessionId
     end
 
-    -- 状态转换
-    if not session:ChangeState(CONNECTION_STATUS.GAMING) then
-        return false
-    end
-
-    -- 如果有uid，绑定uid映射
-    if session.uid then
-        SessionMgr:BindUid(account, session.uid)
-    end
-
-    Logger.Info("GateMgr.SetConnectionGaming success %s", session:ToLogString())
-    return true
+    local pack = ProtocolHelper.Encode("login.s2c_reconnect", resp)
+    GateMgr:SendMessage(fd, pack)
 end
 
--- 踢掉玩家
-function GateMgr:KickPlayer(uid, reason)
-    local session = SessionMgr:GetByUid(uid)
-    if not session then
-        Logger.Warn("GateMgr.KickPlayer player not found uid=%s", uid)
-        return false
+function GateMgr.EnterGame(sessionId, uid)
+    local succ = SessionMgr:BindUid(sessionId, uid)
+    return succ
+end
+
+function GateMgr.VerifyToken(account, token)
+    return TokenMgr:Verify(token, account)
+end
+
+function GateMgr.OnDisconnect(fd, reason)
+    SessionMgr:HandleDisconnect(fd, reason)
+end
+
+-- 调试接口
+function GateMgr.DebugGetSessions()
+    local list = {}
+    for fd, session in pairs(SessionMgr.fd2Session) do
+        table.insert(list, session:ToLogString())
     end
-
-    reason = reason or "kicked by server"
-    GateMgr.CloseFd(session:GetFd(), reason)
-
-    Logger.Info("GateMgr.KickPlayer uid=%s reason=%s", uid, reason)
-    return true
+    return list
 end
 
--- 获取在线玩家数量
-function GateMgr:GetOnlineCount()
-    local count = 0
-    for _, session in pairs(SessionMgr.fd2Session) do
-        if session:GetStatus() == CONNECTION_STATUS.GAMING then
-            count = count + 1
-        end
+function GateMgr.DebugGetWaiting()
+    local list = {}
+    for sid, info in pairs(SessionMgr.waitingReconnect) do
+        table.insert(list, string.format("%s timeout=%d", sid, info.timeout))
     end
-    return count
-end
-
--- 获取所有在线玩家信息
-function GateMgr:GetOnlinePlayers()
-    local players = {}
-    for _, session in pairs(SessionMgr.uid2Session) do
-        if session:GetStatus() == CONNECTION_STATUS.GAMING then
-            table.insert(players, {
-                uid = session:GetUid(),
-                account = session:GetAccount(),
-                fd = session:GetFd(),
-                idleTime = session:GetIdleTime(),
-                clientInfo = session.clientInfo,
-            })
-        end
-    end
-    return players
-end
-
--- 获取统计信息
-function GateMgr:GetStats()
-    return SessionMgr:GetStats()
-end
-
--- 清理过期的Token（保持原接口）
-function GateMgr:CleanupExpiredTokens()
-    SessionMgr:CleanupExpiredTokens()
+    return list
 end
 
 return GateMgr

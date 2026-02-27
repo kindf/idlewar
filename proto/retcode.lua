@@ -17,5 +17,6 @@ RetCode.ACCOUNT_CREATE_REPEATED = 206 -- 账号创建重复
 RetCode.VERSION_NOT_CHECKED = 207 -- 版本未检测
 RetCode.CHECK_VERSION_FAILED = 208 -- 版本检测失败
 RetCode.GEN_UID_ERROR = 209 -- 生成uid失败
+RetCode.SESSION_STATE_ERROR = 210 -- session状态错误
 
 return RetCode

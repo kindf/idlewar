@@ -1,5 +1,5 @@
 
-ˆ
+†
 login.protologin"-
 c2s_check_version
 version (	Rversion"-
@@ -7,9 +7,7 @@
 retCode (RretCode"@
 c2s_login_auth
 account (	Raccount
-token (	Rtoken"J
+token (	Rtoken"H
 s2c_login_auth
-retCode (RretCode
-
-loginToken (	R
-loginTokenbproto3
+retCode (RretCode
+	sessionId (	R	sessionIdbproto3

@@ -1,52 +1,43 @@
-local Logger = require("public.logger")
-local Session = require("module.gate.session")
-local DEFINE = require("public.define")
-local STATE_MACHINE = require("module.gate.session_state_machine")
+local skynet = require "skynet"
+local Logger = require "public.logger"
+local Session = require "gate.session"
+local DEFINE = require "public.define"
+local ClusterHelper = require "public.cluster_helper"
+local STATE_TRANSITIONS = require "module.gate.session_state_machine"
+local CONN_STATE = DEFINE.CONNECTION_STATUS
 
-local CONNECTION_STATUS = DEFINE.CONNECTION_STATUS
--- Token 信息类
-local TokenInfo = {}
-TokenInfo.__index = TokenInfo
-
-function TokenInfo.New(account, token)
-    local self = setmetatable({}, TokenInfo)
-    self.account = account
-    self.token = token
-    self.createTime = os.time()
-    self.expireTime = os.time() + DEFINE.TOKEN_EXPIRE_TIME
-    return self
-end
-
-function TokenInfo:IsExpired()
-    return os.time() > self.expireTime
-end
-
-function TokenInfo:Refresh()
-    self.expireTime = os.time() + DEFINE.TOKEN_EXPIRE_TIME
-end
-
--- SessionManager 管理所有 Session
+-- SessionManager
 local SessionManager = {
-    fd2Session = {},      -- fd -> Session
-    account2Session = {}, -- account -> Session
-    uid2Session = {},     -- uid -> Session
-    token2Info = {},      -- token -> TokenInfo
+    fd2Session = {},       -- fd -> Session
+    sid2Session = {},      -- sessionId -> Session
+    account2Sid = {},      -- account -> sessionId
+    waitingReconnect = {}, -- sessionId -> {session, timeout}
+    seqCounter = 0,
     totalCreated = 0,
     totalClosed = 0,
+    gate = nil,
 }
+
+function SessionManager:SetGate(gate)
+    self.gate = gate
+end
+
+function SessionManager:GetNextSeq()
+    self.seqCounter = self.seqCounter + 1
+    return self.seqCounter
+end
 
 function SessionManager:Add(fd, ip)
     if self.fd2Session[fd] then
-        Logger.Warn("SessionManager:Add session already exists for fd=%s, closing old one", fd)
-        self:Close(fd, "重复的连接")
+        Logger.Warn("SessionManager:Add duplicate fd=%s, closing", fd)
+        self:Close(fd, "duplicate")
     end
 
     local session = Session.New(fd, ip)
     self.fd2Session[fd] = session
     self.totalCreated = self.totalCreated + 1
 
-    Logger.Debug("SessionManager:Add %s, total:%d", session:ToLogString(), self:GetActiveCount())
-
+    Logger.Debug("SessionManager:Add %s", session:ToLogString())
     return session
 end
 
@@ -54,94 +45,128 @@ function SessionManager:GetByFd(fd)
     return self.fd2Session[fd]
 end
 
+function SessionManager:GetBySid(sessionId)
+    return self.sid2Session[sessionId]
+end
+
 function SessionManager:GetByAccount(account)
-    return self.account2Session[account]
+    local sessionId = self.account2Sid[account]
+    if sessionId then
+        return self.sid2Session[sessionId]
+    end
+    return nil
 end
 
-function SessionManager:GetByUid(uid)
-    return self.uid2Session[uid]
-end
-
-function SessionManager:GetAll()
-    return self.fd2Session
-end
-
-function SessionManager:BindAccount(fd, account)
+function SessionManager:Authenticate(fd, account)
     local session = self.fd2Session[fd]
     if not session then
-        Logger.Error("SessionManager:BindAccount session not found fd=%s", fd)
-        return false
+        Logger.Error("SessionManager:Authenticate no session fd=%s", fd)
+        return nil
     end
 
-    -- 如果该账号已有其他session，先处理
-    local existing = self.account2Session[account]
-    if existing and existing.fd ~= fd then
-        Logger.Info("SessionManager:BindAccount account %s already has session fd=%s, kicking",
-            account, existing.fd)
-        self:Close(existing.fd, "顶号")
+    -- 处理顶号
+    local existingSid = self.account2Sid[account]
+    if existingSid then
+        local existingSession = self.sid2Session[existingSid]
+        if existingSession and existingSession:IsAlive() then
+            Logger.Info("SessionManager:Authenticate account=%s 顶号 踢除旧号中", account)
+            skynet.send(self.gate, "lua", "kick", existingSession.fd)
+            -- 通知AgentMgr顶号
+            self:KickAgent(account, "new login")
+            -- 清理旧session
+            self:Close(existingSession.fd, "new login")
+        end
     end
 
+    -- 生成sessionId
+    local sessionId = session:GenerateSessionId(self:GetNextSeq())
     session:SetAccount(account)
-    self.account2Session[account] = session
+    session:ChangeState(CONN_STATE.AUTHED)
 
-    Logger.Info("SessionManager:BindAccount account=%s fd=%s", account, fd)
-    return true
+    -- 建立映射
+    self.sid2Session[sessionId] = session
+    self.account2Sid[account] = sessionId
+
+    Logger.Info("SessionManager:Authenticate success %s", session:ToLogString())
+
+    return sessionId
 end
 
-function SessionManager:BindUid(account, uid)
-    local session = self.account2Session[account]
+function SessionManager:BindUid(sessionId, uid)
+    local session = self.sid2Session[sessionId]
     if not session then
-        Logger.Error("SessionManager:BindUid session not found account=%s", account)
+        Logger.Error("SessionManager:BindUid session not found %s", sessionId)
         return false
-    end
-
-    -- 如果该UID已有其他session，先处理
-    local existing = self.uid2Session[uid]
-    if existing and existing.fd ~= session.fd then
-        Logger.Info("SessionManager:BindUid uid %s already has session fd=%s, kicking",
-            uid, existing.fd)
-        self:Close(existing.fd, "顶号")
     end
 
     session:SetUid(uid)
-    self.uid2Session[uid] = session
+    session:ChangeState(CONN_STATE.GAMING)
 
-    Logger.Info("SessionManager:BindUid uid=%s account=%s fd=%s", uid, account, session.fd)
+    Logger.Info("SessionManager:BindUid %s", session:ToLogString())
     return true
 end
 
-function SessionManager:AddToken(token, account)
-    local tokenInfo = TokenInfo.New(account, token)
-    self.token2Info[token] = tokenInfo
-    return tokenInfo
+function SessionManager:HandleDisconnect(fd, reason)
+    local session = self.fd2Session[fd]
+    if not session then
+        return
+    end
+
+    local sessionId = session.sessionId
+
+    if sessionId and session.state == CONN_STATE.GAMING then
+        -- 游戏中断线，进入重连等待
+        session:ChangeState(CONN_STATE.WAITING_RECONNECT, reason)
+        session.disconnectTime = os.time()
+
+        self.waitingReconnect[sessionId] = {
+            session = session,
+            timeout = os.time() + DEFINE.CONNECTION_RECONNECT_WINDOW,
+        }
+
+        -- 清理fd映射，保留其他映射
+        self.fd2Session[fd] = nil
+
+        Logger.Info("SessionManager:HandleDisconnect %s waiting reconnect",
+            session:ToLogString())
+    else
+        -- 未认证或非游戏状态，直接清理
+        self:Close(fd, reason)
+    end
 end
 
-function SessionManager:VerifyToken(token, account)
-    local tokenInfo = self.token2Info[token]
-    if not tokenInfo then
-        Logger.Debug("SessionManager:VerifyToken token not found")
-        return false
+function SessionManager:HandleReconnect(newFd, sessionId, account)
+    local reconnectInfo = self.waitingReconnect[sessionId]
+    if not reconnectInfo then
+        return nil, "not in reconnect window"
     end
 
-    if tokenInfo.account ~= account then
-        Logger.Warn("SessionManager:VerifyToken account mismatch: %s vs %s",
-            tokenInfo.account, account)
-        return false
+    local session = reconnectInfo.session
+
+    -- 验证
+    if os.time() > reconnectInfo.timeout then
+        return nil, "reconnect timeout"
     end
 
-    if tokenInfo:IsExpired() then
-        Logger.Debug("SessionManager:VerifyToken token expired")
-        self.token2Info[token] = nil
-        return false
+    if session.account ~= account then
+        return nil, "account mismatch"
     end
 
-    -- 验证通过，刷新token
-    tokenInfo:Refresh()
-    return true
-end
+    -- 更新fd
+    local oldFd = session.fd
+    self.fd2Session[oldFd] = nil
+    session:UpdateFd(newFd)
+    self.fd2Session[newFd] = session
 
-function SessionManager:RemoveToken(token)
-    self.token2Info[token] = nil
+    -- 从等待队列移除
+    self.waitingReconnect[sessionId] = nil
+
+    -- 恢复状态
+    session:ChangeState(CONN_STATE.GAMING, "reconnect success")
+
+    Logger.Info("SessionManager:HandleReconnect success %s", session:ToLogString())
+
+    return session
 end
 
 function SessionManager:Close(fd, reason)
@@ -150,107 +175,89 @@ function SessionManager:Close(fd, reason)
         return
     end
 
-    -- 状态转换为CLOSED
-    session:ChangeState(CONNECTION_STATUS.CLOSED, reason)
+    Logger.Info("SessionManager:Close %s reason=%s", session:ToLogString(), reason)
 
-    -- 从所有映射中移除
+    session.closeReason = reason
+    session:ChangeState(CONN_STATE.CLOSED, reason)
+
+    -- 清理映射
     self.fd2Session[fd] = nil
 
-    if session:GetAccount() then
-        local accSession = self.account2Session[session:GetAccount()]
-        if accSession and accSession.fd == fd then
-            self.account2Session[session:GetAccount()] = nil
-        end
-    end
+    if session.sessionId then
+        self.sid2Session[session.sessionId] = nil
+        self.waitingReconnect[session.sessionId] = nil
 
-    if session:GetUid() then
-        local uidSession = self.uid2Session[session:GetUid()]
-        if uidSession and uidSession.fd == fd then
-            self.uid2Session[session:GetUid()] = nil
-        end
-    end
-
-    if session.loginToken then
-        self.token2Info[session.loginToken] = nil
-    end
-
-    self.totalClosed = self.totalClosed + 1
-
-    Logger.Info("SessionManager:Close %s, active:%d", session:ToLogString(), self:GetActiveCount())
-end
-
-function SessionManager:CleanupExpiredSessions()
-    local expired = {}
-
-    for fd, session in pairs(self.fd2Session) do
-        -- 检查超时
-        if session:GetIdleTime() > DEFINE.SESSION_TIMEOUT then
-            table.insert(expired, fd)
-        end
-
-        -- 检查特定状态超时
-        local stateDef = STATE_MACHINE[session:GetStatus()]
-        if stateDef and stateDef.timeout then
-            if session:GetIdleTime() > stateDef.timeout then
-                table.insert(expired, fd)
+        if session.account then
+            -- 注意：account2Sid可能已被新session覆盖，需要检查
+            if self.account2Sid[session.account] == session.sessionId then
+                self.account2Sid[session.account] = nil
             end
         end
     end
 
-    for _, fd in ipairs(expired) do
-        self:Close(fd, "session timeout")
-    end
+    self.totalClosed = self.totalClosed + 1
+end
 
-    if #expired > 0 then
-        Logger.Info("SessionManager:CleanupExpiredSessions closed %d expired sessions", #expired)
+function SessionManager:KickAgent(account, reason)
+    -- RPC调用AgentMgr踢人
+    local ok, err = ClusterHelper.CallGameAgentMgr("KickPlayer", account, reason)
+    if not ok then
+        Logger.Error("SessionManager:KickAgent failed account=%s err=%s", account, err)
     end
 end
 
-function SessionManager:CleanupExpiredTokens()
+function SessionManager:Cleanup()
+    local now = os.time()
     local expired = {}
 
-    for token, tokenInfo in pairs(self.token2Info) do
-        if tokenInfo:IsExpired() then
-            table.insert(expired, token)
+    -- 清理超时重连
+    for _, info in pairs(self.waitingReconnect) do
+        if now > info.timeout then
+            table.insert(expired, { fd = info.session.fd, reason = "reconnect timeout" })
         end
     end
 
-    for _, token in ipairs(expired) do
-        self.token2Info[token] = nil
+    -- 清理空闲连接
+    for fd, session in pairs(self.fd2Session) do
+        if session:GetIdleTime() > DEFINE.HEARTBEAT_TIMEOUT then
+            table.insert(expired, { fd = fd, reason = "heartbeat timeout" })
+        end
+
+        local rule = STATE_TRANSITIONS[session.state]
+        if rule and rule.timeout then
+            if session:GetIdleTime() > rule.timeout then
+                table.insert(expired, { fd = fd, reason = "state timeout" })
+            end
+        end
+    end
+
+    for _, item in ipairs(expired) do
+        self:Close(item.fd, item.reason)
     end
 
     if #expired > 0 then
-        Logger.Debug("SessionManager:CleanupExpiredTokens cleaned %d expired tokens", #expired)
+        Logger.Info("SessionManager:Cleanup closed %d sessions", #expired)
     end
-end
-
-function SessionManager:GetActiveCount()
-    local count = 0
-    for _, session in pairs(self.fd2Session) do
-        if session:IsAlive() then
-            count = count + 1
-        end
-    end
-    return count
 end
 
 function SessionManager:GetStats()
     local stats = {
         totalCreated = self.totalCreated,
         totalClosed = self.totalClosed,
-        active = self:GetActiveCount(),
-        byStatus = {},
-        tokens = 0,
+        active = 0,
+        byState = {},
+        waitingReconnect = 0,
     }
 
     for _, session in pairs(self.fd2Session) do
         if session:IsAlive() then
-            stats.byStatus[session:GetStatus()] = (stats.byStatus[session:GetStatus()] or 0) + 1
+            stats.active = stats.active + 1
+            stats.byState[session.state] = (stats.byState[session.state] or 0) + 1
         end
     end
 
-    for _ in pairs(self.token2Info) do
-        stats.tokens = stats.tokens + 1
+    for _ in pairs(self.waitingReconnect) do
+        stats.waitingReconnect = stats.waitingReconnect + 1
     end
 
     return stats

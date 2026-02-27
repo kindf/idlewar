@@ -55,11 +55,12 @@ end
 
 local loginToken
 local uid
+local sessionId
 local function DoSomething()
     -- 检查版本
     C2S("login.c2s_check_version", { version = "ac01c22155e4a7264482d8ddc71343b5" }, function(_) end)
     -- 登录认证
-    C2S("login.c2s_login_auth", { account = "test1", token = "token" }, function(resp) loginToken = resp.loginToken end)
+    C2S("login.c2s_login_auth", { account = "test1", token = "token" }, function(resp) sessionId = resp.sessionId end)
 
     local function QueryCallBack(resp)
         uid = resp.uid
@@ -68,10 +69,10 @@ local function DoSomething()
 
     if not uid then
         -- 创建角色
-        C2S("player_base.c2s_create_role", { account = "test1", loginToken = loginToken, name = "test1" }, function(_) end)
+        C2S("player_base.c2s_create_role", { account = "test1", loginToken = sessionId, name = "test1" }, function(_) end)
     end
     -- 登录游戏
-    C2S("player_base.c2s_enter_game", { account = "test1", loginToken = loginToken }, function(resp) Logger.Debug("进入游戏 resp:%s", resp.retCode) end)
+    C2S("player_base.c2s_enter_game", { account = "test1", sessionId = sessionId }, function(resp) Logger.Debug("进入游戏 resp:%s", resp.retCode) end)
 end
 
 local gatePort = skynet.getenv("gate_port")

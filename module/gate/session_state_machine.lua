@@ -1,75 +1,75 @@
-local DEFINE = require "public.define"
-local Logger = require "public.logger"
-local CONNECTION_STATUS = DEFINE.CONNECTION_STATUS
+local DEFINE = require("public.define")
+local Logger = require("public.logger")
 
--- 状态机：定义各状态允许的操作和转换
-local STATE_MACHINE = {
-    [CONNECTION_STATUS.CONNECTED] = {
-        allowedNext = {
-            [CONNECTION_STATUS.VERSION_CHECKED] = true,
-            [CONNECTION_STATUS.CLOSED] = true
+-- 连接状态常量
+local CONN_STATE = DEFINE.CONN_STATE
+-- 状态转换规则
+local STATE_TRANSITIONS = {
+    [CONN_STATE.INIT] = {
+        next = {
+            [CONN_STATE.VERSION_CHECKED] = true,
+            [CONN_STATE.CLOSED] = true
         },
-        allowedOperations = { "check_version" },
         onEnter = function(session)
-            Logger.Debug("Session[%s] entered CONNECTED", session:GetId())
-        end,
-        onExit = function(session)
-            Logger.Debug("Session[%s] exited CONNECTED", session:GetId())
+            Logger.Debug("Session[%s] entered INIT", session:GetId())
         end
     },
-    [CONNECTION_STATUS.VERSION_CHECKED] = {
-        allowedNext = {
-            [CONNECTION_STATUS.LOGINING] = true,
-            [CONNECTION_STATUS.CLOSED] = true
+    [CONN_STATE.VERSION_CHECKED] = {
+        next = {
+            [CONN_STATE.LOGINING] = true,
+            [CONN_STATE.CLOSED] = true
         },
-        allowedOperations = { "auth" },
         onEnter = function(session)
             session:UpdateActiveTime()
             Logger.Debug("Session[%s] version checked", session:GetId())
         end
     },
-    [CONNECTION_STATUS.LOGINING] = {
-        allowedNext = {
-            [CONNECTION_STATUS.VERSION_CHECKED] = true,
-            [CONNECTION_STATUS.AUTHED] = true,
-            [CONNECTION_STATUS.CLOSED] = true
+    [CONN_STATE.LOGINING] = {
+        next = {
+            [CONN_STATE.VERSION_CHECKED] = true,
+            [CONN_STATE.AUTHED] = true,
+            [CONN_STATE.CLOSED] = true
         },
-        allowedOperations = {},
-        timeout = 30, -- 登录状态超时30秒
+        timeout = 30,
         onEnter = function(session)
             session:UpdateActiveTime()
         end
     },
-    [CONNECTION_STATUS.AUTHED] = {
-        allowedNext = {
-            [CONNECTION_STATUS.GAMING] = true,
-            [CONNECTION_STATUS.CLOSED] = true
+    [CONN_STATE.AUTHED] = {
+        next = {
+            [CONN_STATE.GAMING] = true,
+            [CONN_STATE.WAITING_RECONNECT] = true,
+            [CONN_STATE.CLOSED] = true
         },
-        allowedOperations = { "enter_game" },
         onEnter = function(session)
             session:UpdateActiveTime()
-            Logger.Info("Session[%s] authenticated for account:%s",
-                session:GetId(), session:GetAccount())
+            Logger.Info("Session[%s] authed for account:%s",
+                session:GetId(), session.account or "nil")
         end
     },
-    [CONNECTION_STATUS.GAMING] = {
-        allowedNext = {
-            [CONNECTION_STATUS.CLOSED] = true
+    [CONN_STATE.GAMING] = {
+        next = {
+            [CONN_STATE.WAITING_RECONNECT] = true,
+            [CONN_STATE.CLOSED] = true
         },
-        allowedOperations = { "game_message" },
         onEnter = function(session)
             session:UpdateActiveTime()
-            Logger.Info("Session[%s] entered gaming for uid:%s",
-                session:GetId(), session:GetUid())
+            Logger.Info("Session[%s] gaming for uid:%s",
+                session:GetId(), session.uid or "nil")
         end
     },
-    [CONNECTION_STATUS.CLOSED] = {
-        allowedNext = {},
-        allowedOperations = {},
+    [CONN_STATE.WAITING_RECONNECT] = {
+        next = {
+            [CONN_STATE.GAMING] = true,
+            [CONN_STATE.CLOSED] = true
+        },
+        timeout = DEFINE.CONNECTION_RECONNECT_WINDOW,
         onEnter = function(session, reason)
-            Logger.Info("Session[%s] closed, reason:%s", session:GetId(), reason or "unknown")
+            session:UpdateActiveTime()
+            Logger.Info("Session[%s] waiting reconnect, reason:%s",
+                session:GetId(), reason or "unknown")
         end
-    }
+    },
 }
 
-return STATE_MACHINE
+return STATE_TRANSITIONS

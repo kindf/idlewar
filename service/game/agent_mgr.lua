@@ -8,8 +8,12 @@ local Logger = require "public.logger"
 -- 初始化
 function CMD.start()
     ProtocolHelper.RegisterProtocol()
-    AgentMgr.Init()
+    AgentMgr:Init()
     Logger.Info("AgentMgr 初始化完成")
+end
+
+function CMD.KickPlayer(account, reason)
+    AgentMgr:KickPlayer(account, reason)
 end
 
 skynet.start(function()

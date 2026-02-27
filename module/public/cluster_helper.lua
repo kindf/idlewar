@@ -28,7 +28,7 @@ function ClusterHelper.CallGateNode(service, cmd, ...)
 end
 
 function ClusterHelper.CallGameAgentMgr(cmd, ...)
-    return pcall(cluster.call, "gamenode", ".agentmgr", cmd, ...)
+    return pcall(cluster.call, "gamenode", ".agent_mgr", cmd, ...)
 end
 
 function ClusterHelper.CallLoginNode(service, cmd, ...)

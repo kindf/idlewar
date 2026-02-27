@@ -1,309 +1,404 @@
 local skynet = require "skynet"
-local cluster = require "skynet.cluster"
 local RetCode = require "proto.retcode"
 local Logger = require "public.logger"
 local DEFINE = require "public.define"
 local ClusterHelper = require "public.cluster_helper"
 local ProtocolHelper = require "public.protocol_helper"
+local AgentInfo = require "module.game.agentmgr.agent_info"
+local Timer = require "public.timer"
+local AGENT_STATE = DEFINE.AGENT_STATE
 
-local AgentMgr = {}
--- 玩家数据管理
-local acc2Agent = {}          -- account->agent地址
-local uid2Agent = {}          -- uid->agent地址
-local agent2Info = {}         -- agent地址->玩家信息
+local AgentMgr = {
+    acc2Agent = {},    -- account -> AgentInfo
+    uid2Agent = {},    -- uid -> AgentInfo
+    agent2Info = {},   -- agentAddr -> AgentInfo
+    cleanupQueue = {}, -- agentAddr -> {info, scheduleTime, reason}
+    totalCreated = 0,
+    totalDestroyed = 0,
+    totalReconnects = 0,
+    timer = Timer.New(),
+}
 
-function AgentMgr.Init()
-    Logger.Info("AgentMgr 初始化")
-end
+function AgentMgr:Add(account, uid, agentAddr)
+    -- 检查是否已存在
+    local existing = self.acc2Agent[account]
+    if existing then
+        Logger.Warn("AgentMgr:Add account=%s already exists, removing", account)
+        self:ImmediateRemove(existing.agentAddr, "duplicate")
+    end
 
--- 创建玩家信息结构
-local function CreateAgentInfo(account, uid, agentAddr, state)
-    local info =  {
-        account = account,
-        uid = uid,
-        agentAddr = agentAddr,
-        state = state or DEFINE.AGENT_STATE.ONLINE_AGENT_STATE,
-        loginTime = os.time(),
-        lastActiveTime = os.time(),
-        ip = nil,
-        fd = nil
-    }
-    agent2Info[agentAddr] = info
-    acc2Agent[account] = info
-    uid2Agent[uid] = info
+    local info = AgentInfo.New(account, uid, agentAddr)
+    self.acc2Agent[account] = info
+    self.uid2Agent[uid] = info
+    self.agent2Info[agentAddr] = info
+    self.totalCreated = self.totalCreated + 1
+    Logger.Info("AgentMgr:Add %s", info:ToLogString())
     return info
 end
 
--- 绑定连接信息
-function AgentMgr.BindConnection(account, uid, fd, ip)
-    local agentInfo = acc2Agent[account]
-    if not agentInfo then
-        Logger.Error("绑定连接失败，玩家不存在 account:%s", account)
+function AgentMgr:GetByAccount(account)
+    return self.acc2Agent[account]
+end
+
+function AgentMgr:GetByUid(uid)
+    return self.uid2Agent[uid]
+end
+
+function AgentMgr:GetByAddr(agentAddr)
+    return self.agent2Info[agentAddr]
+end
+
+function AgentMgr:ImmediateRemove(agentAddr, reason)
+    local info = self.agent2Info[agentAddr]
+    if not info then
         return false
     end
 
-    if agentInfo.uid ~= uid then
-        Logger.Error("绑定连接失败，UID不匹配 account:%s, uid:%d, playerUid:%d",
-            account, uid, agentInfo.uid)
-        return false
-    end
+    Logger.Info("AgentMgr:ImmediateRemove %s reason=%s", info:ToLogString(), reason)
 
-    agentInfo.fd = fd
-    agentInfo.ip = ip
-    agentInfo.lastActiveTime = os.time()
+    self.acc2Agent[info.account] = nil
+    self.uid2Agent[info.uid] = nil
+    self.agent2Info[agentAddr] = nil
+    self.cleanupQueue[agentAddr] = nil
 
-    -- 通知agent绑定连接
-    if agentInfo.agentAddr then
-        skynet.send(agentInfo.agentAddr, "lua", "SetConnectionInfo", {
-            fd = fd,
-            ip = ip,
-            account = account,
-            uid = uid
-        })
-    end
+    skynet.kill(agentAddr)
 
-    Logger.Debug("绑定连接成功 account:%s, uid:%d, fd:%d", account, uid, fd)
+    self.totalDestroyed = self.totalDestroyed + 1
     return true
 end
 
--- 玩家登出
-function AgentMgr.Logout(account, uid, reason)
-    Logger.Debug("玩家登出 account:%s, uid:%d, reason:%s", account, uid, reason or "未知")
-
-    local agentInfo
-    if account then
-        agentInfo = acc2Agent[account]
-    elseif uid then
-        agentInfo = uid2Agent[uid]
+function AgentMgr:ScheduleRemove(agentAddr, reason)
+    local info = self.agent2Info[agentAddr]
+    if not info then
+        return false
     end
 
-    if not agentInfo then
-        Logger.Warning("登出失败，玩家不存在 account:%s, uid:%d", account, uid)
-        return RetCode.FAILED
-    end
+    info:SetOffline(reason)
 
-    -- 设置状态为离线
-    agentInfo.state = DEFINE.AGENT_STATE.OFFLINE_AGENT_STATE
-    agentInfo.logoutTime = os.time()
-    agentInfo.logoutReason = reason
-    agentInfo.fd = nil
-    agentInfo.ip = nil
+    self.cleanupQueue[agentAddr] = {
+        info = info,
+        scheduleTime = os.time(),
+        reason = reason,
+    }
 
-    -- 清理数据结构（延迟清理，避免频繁登录登出）
-    skynet.timeout(500, function()
-        if agentInfo.state == DEFINE.AGENT_STATE.OFFLINE_AGENT_STATE then
-            acc2Agent[agentInfo.account] = nil
-            uid2Agent[agentInfo.uid] = nil
-            agent2Info[agentInfo.agentAddr] = nil
-
-            -- 销毁agent服务
-            skynet.kill(agentInfo.agentAddr)
-
-            Logger.Info("清理离线玩家 account:%s, uid:%d", agentInfo.account, agentInfo.uid)
+    -- 延迟清理
+    skynet.timeout(DEFINE.AGENT_CLEANUP_DELAY, function()
+        if self.cleanupQueue[agentAddr] then
+            self:ImmediateRemove(agentAddr, "cleanup: " .. reason)
         end
     end)
 
-    return RetCode.SUCCESS
+    Logger.Debug("AgentMgr:ScheduleRemove %s", info:ToLogString())
+    return true
 end
 
--- 强制踢出玩家
-function AgentMgr.KickPlayer(account, reason)
-    local agentInfo = acc2Agent[account]
-    if not agentInfo or agentInfo.state ~= DEFINE.AGENT_STATE.ONLINE_AGENT_STATE then
-        return RetCode.PLAYER_NOT_ONLINE
+function AgentMgr:CancelCleanup(agentAddr)
+    if self.cleanupQueue[agentAddr] then
+        self.cleanupQueue[agentAddr] = nil
+        Logger.Debug("AgentMgr:CancelCleanup %s", agentAddr)
+        return true
+    end
+    return false
+end
+
+function AgentMgr:HandleReconnect(account, uid, fd, ip)
+    local info = self.acc2Agent[account]
+    if not info then
+        return false, "玩家agent不存在"
     end
 
-    Logger.Warning("强制踢出玩家 account:%s, reason:%s", account, reason or "未知")
-
-    -- 关闭连接
-    if agentInfo.fd then
-        pcall(cluster.send, "gatenode", ".gatewatchdog", "KickPlayer", agentInfo.fd, reason or "被管理员踢出")
+    -- 检查重连次数
+    if info.reconnectCount >= DEFINE.MAX_RECONNECT_ATTEMPTS then
+        return false, "超过最大重连次数"
     end
-
-    -- 执行登出
-    AgentMgr.Logout(account, nil, reason or "被管理员踢出")
-
-    return RetCode.SUCCESS
-end
-
--- 获取在线玩家列表
-function AgentMgr.GetOnlinePlayers()
-    local onlinePlayers = {}
-    for account, agentInfo in pairs(acc2Agent) do
-        if agentInfo.state == DEFINE.AGENT_STATE.ONLINE_AGENT_STATE then
-            table.insert(onlinePlayers, {
-                account = account,
-                uid = agentInfo.uid,
-                loginTime = agentInfo.loginTime,
-                lastActiveTime = agentInfo.lastActiveTime,
-                ip = agentInfo.ip,
-                agentAddr = tostring(agentInfo.agentAddr)
-            })
-        end
-    end
-    return onlinePlayers
-end
-
--- 根据账号获取agent地址
-function AgentMgr.GetAgentByAccount(account)
-    local agentInfo = acc2Agent[account]
-    return agentInfo and agentInfo.agentAddr
-end
-
--- 根据UID获取agent地址
-function AgentMgr.GetAgentByUid(uid)
-    local agentInfo = uid2Agent[uid]
-    return agentInfo and agentInfo.agentAddr
-end
-
--- 获取玩家信息
-function AgentMgr.GetAgentInfo(account)
-    return acc2Agent[account]
-end
-
--- 发送消息给玩家
-function AgentMgr.SendMessageToPlayer(account, protoName, msg)
-    local agentAddr = AgentMgr.GetAgentByAccount(account)
-    if not agentAddr then
-        return RetCode.PLAYER_NOT_ONLINE
-    end
-
-    local ok, err = pcall(skynet.send, agentAddr, "lua", "SendClientMessage", protoName, msg)
+    -- 取消清理
+    self:CancelCleanup(info.agentAddr)
+    -- 开始重连
+    info:StartReconnect()
+    -- 重启agent
+    local ok, err = skynet.call(info.agentAddr, "lua", "Restart", account)
     if not ok then
-        Logger.Error("发送消息失败 account:%s, proto:%s, err:%s", account, protoName, err)
-        return RetCode.FAILED
+        Logger.Error("AgentMgr:HandleReconnect restart failed account=%s err=%s",
+            account, err)
+        return false, "restart failed"
     end
+    -- 绑定连接
+    info:BindConnection(fd, ip)
+    self.totalReconnects = self.totalReconnects + 1
+    Logger.Info("AgentMgr:HandleReconnect success %s", info:ToLogString())
+    return true
+end
 
+function AgentMgr:KickPlayer(account, reason)
+    local info = self.acc2Agent[account]
+    if not info or not info:IsOnline() then
+        return RetCode.PLAYER_NOT_ONLINE
+    end
+    Logger.Warning("AgentMgr:Kick %s reason=%s fd:%s", info:ToLogString(), reason, info.fd)
+    -- 踢掉gate连接
+    if info.fd then
+        ClusterHelper.CallGateNode(".gatewatchdog", "KickPlayer", info.fd, reason or "kicked")
+    end
+    -- 加入清理队列
+    self:ScheduleRemove(info.agentAddr, reason or "kicked")
     return RetCode.SUCCESS
 end
 
-local function OnEnterGame(account, uid)
-    local agentInfo = acc2Agent[account]
-    local agentAddr
-    if not agentInfo then
-        -- 创建新的agent
-        Logger.Debug("创建新的agent account:%s", account)
-        agentAddr = skynet.newservice("agent")
-        local ok, result = skynet.call(agentAddr, "lua", "Start", account, uid)
-        if not ok or not result then
-            Logger.Error("启动agent失败 account:%s, err:%s", account, result)
+function AgentMgr:EnterGame(account, sessionId)
+    local info = self.acc2Agent[account]
+    local ret, data = skynet.call(".mongodb", "lua", "FindOne", "userdata", {account = account}, {uid = 1})
+    if not ret then
+        Logger.Error("AgentMgr.EnterGame 加载数据失败 account=%s", account)
+        return RetCode.SYSTEM_ERROR
+    end
+    if not data or not data.uid then
+        Logger.Error("AgentMgr.EnterGame 账号尚未创建 account=%s", account)
+        return RetCode.ACCOUNT_NOT_EXIST
+    end
+    local uid = data.uid
+    local ret1, succ = ClusterHelper.CallGateNode(".gatewatchdog", "EnterGame", sessionId, uid)
+    if not ret1 then
+        Logger.Error("AgentMgr.EnterGame EnterGame失败 account=%s", account)
+        return RetCode.SYSTEM_ERROR
+    end
+    if not succ then
+        Logger.Error("AgentMgr.EnterGame EnterGame失败 account=%s", account)
+        return RetCode.SYSTEM_ERROR
+    end
+    -- 新玩家
+    if not info then
+        Logger.Debug("AgentMgr:EnterGame creating new agent account=%s", account)
+
+        local agentAddr = skynet.newservice("agent")
+        local ok, err = skynet.call(agentAddr, "lua", "Start", account, uid)
+        if not ok then
+            Logger.Error("AgentMgr:EnterGame start agent failed err=%s", err)
             skynet.kill(agentAddr)
             return RetCode.CREATE_AGENT_ERROR
         end
-        agentInfo = CreateAgentInfo(account, uid, agentAddr, DEFINE.AGENT_STATE.ONLINE_AGENT_STATE)
-        Logger.Info("新玩家登录成功 account:%s, uid:%d, agent:%s", account, uid, tostring(agentAddr))
+
+        self:Add(account, uid, agentAddr)
+        Logger.Info("AgentMgr:EnterGame new player account=%s uid=%d", account, uid)
+
         return RetCode.SUCCESS
     end
 
-    Logger.Debug("玩家重连 account:%s", account)
-    -- 重连
-    if agentInfo.state == DEFINE.AGENT_STATE.ONLINE_AGENT_STATE then
-        -- 如果玩家已经在线，可能是多设备登录，踢掉旧连接
-        Logger.Warning("玩家已在其他地方登录，踢掉旧连接 account:%s", account)
-        if agentInfo.fd then
-            -- 通知gate关闭连接
-            ClusterHelper.CallGateNode(".gatewatchdog", "KickPlayer", agentInfo.fd, "顶号")
-        end
-    end
-    -- 重新启动agent
-    local ok, result = pcall(skynet.call, agentInfo.agentAddr, "lua", "Restart", account)
-    if not ok or not result then
-        Logger.Error("重启agent失败 account:%s, err:%s", account, result)
-        skynet.kill(agentAddr)
+    -- 重连玩家
+    Logger.Debug("AgentMgr:EnterGame player reconnect account=%s", account)
+    -- 取消清理
+    self:CancelCleanup(info.agentAddr)
+    -- 重启agent
+    local ok, err = skynet.call(info.agentAddr, "lua", "Restart", account)
+    if not ok then
+        Logger.Error("AgentMgr:EnterGame restart failed err=%s", err)
         return RetCode.RESTART_AGENT_ERROR
     end
-
-    uid = agentInfo.uid
-    agentInfo.state = DEFINE.AGENT_STATE.ONLINE_AGENT_STATE
-    -- 更新 gate conn 状态
-    ClusterHelper.CallGateNode(".gatewatchdog", "SetConnectGaming", account)
-    Logger.Info("玩家重连成功 account:%s, uid:%d", account, uid)
+    info.state = AGENT_STATE.GAMING
+    info:UpdateActiveTime()
+    Logger.Info("AgentMgr:EnterGame reconnect success account=%s uid=%d", account, info.uid)
     return RetCode.SUCCESS
 end
 
-function AgentMgr.EnterGame(account, loginToken)
-    local verifyResult = ClusterHelper.CallGateNode(".gatewatchdog", "VerifyToken", account, loginToken)
-    if not verifyResult then
-        Logger.Error("EnterGame 验证token失败 account:%s", account)
-        return RetCode.INVALID_TOKEN
+function AgentMgr:Logout(account, reason)
+    local info = self.acc2Agent[account]
+    if not info then
+        return RetCode.FAILED
     end
 
-    local ret, data = skynet.call(".mongodb", "lua", "FindOne", "userdata", { account = account }, {uid = 1})
-    if not ret then
-        Logger.Error("加载玩家数据失败 account:%s err:%s", account, data)
-        return RetCode.MONGODB_OPERATE_ERROR
-    end
-    if not data then
-        return RetCode.ACCOUNT_NOT_EXIST
-    end
-    return OnEnterGame(account, data.uid)
+    self:ScheduleRemove(info.agentAddr, reason or "logout")
+    return RetCode.SUCCESS
 end
 
-function AgentMgr.CreateRole(account, loginToken, name)
-    local verifyResult = ClusterHelper.CallGateNode(".gatewatchdog", "VerifyToken", account, loginToken)
-    if not verifyResult then
-        Logger.Error("CreateRole 验证token失败 account:%s", account)
+function AgentMgr:GetOnlineCount()
+    local count = 0
+    for _, info in pairs(self.acc2Agent) do
+        if info:IsOnline() then
+            count = count + 1
+        end
+    end
+    return count
+end
+
+function AgentMgr:GetOnlineList()
+    local list = {}
+    for account, info in pairs(self.acc2Agent) do
+        if info:IsOnline() then
+            table.insert(list, {
+                account = account,
+                uid = info.uid,
+                state = info.state,
+                loginTime = info.loginTime,
+                lastActive = info.lastActiveTime,
+                idleTime = info:GetIdleTime(),
+                ip = info.ip,
+                fd = info.fd,
+                reconnectCount = info.reconnectCount,
+            })
+        end
+    end
+    return list
+end
+
+function AgentMgr:GetStats()
+    local stats = {
+        totalCreated = self.totalCreated,
+        totalDestroyed = self.totalDestroyed,
+        totalReconnects = self.totalReconnects,
+        online = 0,
+        reconnecting = 0,
+        offline = 0,
+        cleanup = 0,
+    }
+
+    for _, info in pairs(self.agent2Info) do
+        if info.state == AGENT_STATE.GAMING then
+            stats.online = stats.online + 1
+        elseif info.state == AGENT_STATE.RECONNECTING then
+            stats.reconnecting = stats.reconnecting + 1
+        elseif info.state == AGENT_STATE.OFFLINE then
+            stats.offline = stats.offline + 1
+        elseif info.state == AGENT_STATE.CLEANUP then
+            stats.cleanup = stats.cleanup + 1
+        end
+    end
+
+    return stats
+end
+
+function AgentMgr:Cleanup()
+    local timeoutReconnects = {}
+    -- 清理超时重连
+    for _, info in pairs(self.acc2Agent) do
+        if info.state == AGENT_STATE.RECONNECTING and info:ReconnectTimeout() then
+            table.insert(timeoutReconnects, info.agentAddr)
+        end
+    end
+    for _, addr in ipairs(timeoutReconnects) do
+        Logger.Warn("AgentMgr:Cleanup reconnect timeout %s",
+            self.agent2Info[addr]:ToLogString())
+        self:ScheduleRemove(addr, "reconnect timeout")
+    end
+    -- 输出统计
+    local stats = self:GetStats()
+    Logger.Info("AgentMgr stats - online:%d reconnecting:%d cleanup:%d", stats.online, stats.reconnecting, stats.cleanup)
+end
+
+function AgentMgr:Init()
+    Logger.Info("AgentMgr initialized")
+    -- 启动清理定时器
+    self.timer:Interval(50, function() self:Cleanup() end, false)
+end
+
+function AgentMgr:GetAgentByAccount(account)
+    local info = self:GetByAccount(account)
+    return info and info.agentAddr
+end
+
+function AgentMgr:GetAgentByUid(uid)
+    local info = self:GetByUid(uid)
+    return info and info.agentAddr
+end
+
+function AgentMgr:SendMessageToPlayer(account, proto, msg)
+    local info = self:GetByAccount(account)
+    if not info or not info:IsOnline() then
+        return RetCode.PLAYER_NOT_ONLINE
+    end
+    -- 获取业务锁
+    if not info:AcquireLock("send", 5) then
+        return RetCode.PLAYER_BUSY
+    end
+    info:ReleaseLock("send")
+    local ok, err = pcall(skynet.send, info.agentAddr, "lua", "SendMessage", proto, msg)
+    if not ok then
+        Logger.Error("AgentMgr.SendMessage failed account=%s err=%s", account, err)
+        return RetCode.FAILED
+    end
+    info:UpdateActiveTime()
+    return RetCode.SUCCESS
+end
+
+-- 调试接口
+function AgentMgr:DebugGetCleanupQueue()
+    local list = {}
+    for _, info in pairs(self.cleanupQueue) do
+        table.insert(list, string.format("%s reason=%s",
+            info.info:ToLogString(), info.reason))
+    end
+    return list
+end
+
+function AgentMgr:CreateRole(sessionId, account, name)
+    local ret, succ = ClusterHelper.CallGateNode(".gatewatchdog", "CheckCreateRoleSession", account, sessionId)
+    if not ret then
+        Logger.Warning("AgentMgr.CreateRole 非法token account=%s", account)
         return RetCode.INVALID_TOKEN
     end
-    local ret, data = skynet.call(".mongodb", "lua", "FindOne", "userdata", { account = account }, {uid = 1})
-    if not ret then
-        Logger.Error("加载玩家数据失败 account:%s err:%s", account, data)
-        return RetCode.MONGODB_OPERATE_ERROR
+
+    local ret1, data = skynet.call(".mongodb", "lua", "FindOne", "userdata", {account = account}, {uid = 1})
+    if not ret1 then
+        Logger.Error("AgentMgr.CreateRole 加载数据失败 account=%s", account)
+        return RetCode.SYSTEM_ERROR
     end
-    -- 账号已存在
+
     if data then
+        Logger.Error("AgentMgr.CreateRole 账号已存在 account=%s", account)
         return RetCode.ACCOUNT_CREATE_REPEATED
     end
-    local ret1, uid = skynet.call(".guid", "lua", "GenUid")
-    if not ret1 then
-        return RetCode.GEN_UID_ERROR
+
+    local ret2, uid = skynet.call(".guid", "lua", "GetUid")
+    if not ret2 then
+        Logger.Error("AgentMgr.CreateRole 获取uid失败")
+        return RetCode.SYSTEM_ERROR
     end
 
     local accountData = {
         account = account,
-        name = name,
         uid = uid,
+        bornTime = os.time(),
+        name = name,
     }
-    local succ, err = skynet.call(".mongodb", "lua", "InsertOne", "userdata", accountData)
-    if not succ then
-        Logger.Error("创建账号失败 account:%s err:%s", account, err)
-        return RetCode.MONGODB_OPERATE_ERROR
+
+    local ret3 = skynet.call(".mongodb", "lua", "InsertOne", "userdata", accountData)
+    if not ret3 then
+        Logger.Error("AgentMgr.CreateRole 写入数据失败 account=%s", account)
+        return RetCode.SYSTEM_ERROR
     end
     return RetCode.SUCCESS
 end
 
------------------------------------- 客户端 req ----------------------------------------------------
+------------------------------------------------- 客户端请求 --------------------------------------------------------------------------
 
--- 请求进入游戏
-local function C2SEnterGame(req, resp)
+-- 查询玩家uid
+local function C2SQueryUid(req, resp)
     local account = req.account
-    local loginToken = req.loginToken
-    resp.retCode = AgentMgr.EnterGame(account, loginToken)
-    Logger.Debug("C2SEnterGame account:%s retCode:%s", account, resp.retCode)
+    local ret, data = skynet.call(".mongodb", "lua", "FindOne", "userdata", {account = account}, {uid = 1})
+    if not ret then
+        Logger.Error("AgentMgr.C2SQueryUid 加载数据失败 account=%s", account)
+        resp.retCode = RetCode.SYSTEM_ERROR
+        return
+    end
+
+    resp.retCode = RetCode.SUCCESS
+    resp.uid = data and data.uid
 end
-ProtocolHelper.RegisterRpcHandler("player_base.c2s_enter_game", "player_base.s2c_enter_game", C2SEnterGame)
+ProtocolHelper.RegisterRpcHandler("player_base.c2s_query_uid", "player_base.s2c_query_uid", C2SQueryUid)
 
--- 请求创建角色
+-- 创角
 local function C2SCreateRole(req, resp)
+    local sessionId = req.sessionId
     local account = req.account
-    local loginToken = req.loginToken
     local name = req.name
-    resp.retCode = AgentMgr.CreateRole(account, loginToken, name)
-    Logger.Debug("C2SCreateRole account:%s retCode:%s", account, resp.retCode)
+    resp.retCode = AgentMgr:CreateRole(sessionId, account, name)
 end
 ProtocolHelper.RegisterRpcHandler("player_base.c2s_create_role", "player_base.s2c_create_role", C2SCreateRole)
 
-local function C2SQueryUid(req, resp)
+-- 进入游戏
+local function C2SEnterGame(req, resp)
     local account = req.account
-    local ret, data = skynet.call(".mongodb", "lua", "FindOne", "userdata", { account = account }, {uid = 1})
-    if not ret then
-        resp.retCode = RetCode.MONGODB_OPERATE_ERROR
-        return
-    end
-    resp.retCode = RetCode.SUCCESS
-    resp.uid = data and data.uid
-    Logger.Debug("C2SQueryUid account:%s uid:%s", account, resp.uid)
+    local sessionId = req.sessionId
+    resp.retCode = AgentMgr:EnterGame(account, sessionId)
 end
-ProtocolHelper.RegisterRpcHandler("player_base.c2s_query_uid", "player_base.s2c_query_uid", C2SQueryUid)
+ProtocolHelper.RegisterRpcHandler("player_base.c2s_enter_game", "player_base.s2c_enter_game", C2SEnterGame)
 
 return AgentMgr

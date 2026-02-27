@@ -8,7 +8,8 @@ end
 
 CMD.VerifyToken = function(...) GateMgr:VerifyToken(...) end
 CMD.SetConnectionGaming = function(...) GateMgr:SetConnectionGaming(...) end
-CMD.SendClientMessage = function(...) GateMgr:SendClientMessage(...) end
-CMD.KickPlayer = function(...) GateMgr:KickPlayer(...) end
+CMD.SendClientMessage = function(...) GateMgr:SendMessage(...) end
+CMD.KickPlayer = function(...) GateMgr:CloseFd(...) end
+CMD.EnterGame = GateMgr.EnterGame
 
 return CMD
