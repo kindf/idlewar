@@ -32,3 +32,8 @@ message c2s_create_role {
 message s2c_create_role {
   uint32 retCode = 1;
 }
+
+// 踢出角色
+message s2c_kick_role {
+  string reason = 1;
+}

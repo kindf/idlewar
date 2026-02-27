@@ -7,26 +7,27 @@ local DEFINE = require "public.define"
 local SOCKET = {}
 
 local DispatchFunc = {}
-DispatchFunc[Pids["login.c2s_check_version"]] = function(conn, protoId, msg)
-    GateMgr.HandleLoginCheckVersion(conn, protoId, msg)
+DispatchFunc[Pids["login.c2s_check_version"]] = function(session, protoId, msg)
+    GateMgr:HandleLoginCheckVersion(session, protoId, msg)
 end
 
-DispatchFunc[Pids["login.c2s_login_auth"]] = function(conn, protoId, msg)
-    GateMgr.HandleLoginAuth(conn, protoId, msg)
+DispatchFunc[Pids["login.c2s_login_auth"]] = function(session, protoId, msg)
+    GateMgr:HandleLoginAuth(session, protoId, msg)
 end
 
-local function DispatchGame(conn, protoId, msg)
-    if conn.status == DEFINE.CONNECTION_STATUS.GAMING or conn.status == DEFINE.CONNECTION_STATUS.AUTHED then
-        local succ, err = ClusterHelper.TransmitMessage(conn, protoId, msg)
+local function DispatchGame(session, protoId, msg)
+    local status = session:GetStatus()
+    if status == DEFINE.CONNECTION_STATUS.GAMING or status == DEFINE.CONNECTION_STATUS.AUTHED then
+        local succ, err = ClusterHelper.TransmitMessage(session, protoId, msg)
         if not succ then
             return Logger.Error("协议转发失败 pid:%s err:%s", protoId, err)
         end
     else
-        Logger.Error("协议非法 fd:%s, pid:%s", conn.fd, protoId)
+        Logger.Error("协议非法 fd:%s, pid:%s, status:%s", session:GetFd(), protoId, status)
     end
 end
 
-local function Dispatch(conn, protoId, msg)
+local function Dispatch(fd, protoId, msg)
     if not protoId then
         return Logger.Error("不存在的协议号 pid:%s", protoId)
     end
@@ -35,17 +36,20 @@ local function Dispatch(conn, protoId, msg)
         return Logger.Error("不存在的协议号 pid:%s", protoId)
     end
 
-    local fd = conn.fd
-    assert(fd, "不存在的fd")
+    local session = GateMgr:GetSession(fd)
+    if not session then
+        return Logger.Error("不存在的连接 fd:%s", fd)
+    end
+
     local func = DispatchFunc[protoId] or DispatchGame
     if not func then
         return Logger.Error("不存在的协议号 pid:%s", protoId)
     end
-    func(conn, protoId, msg)
+    func(session, protoId, msg)
 end
 
 function SOCKET.open(fd, ip)
-    local gateAccept = GateMgr.AddConnection(fd, ip)
+    local gateAccept = GateMgr:AddSession(fd, ip)
     if gateAccept then
         gateAccept()
     end
@@ -54,12 +58,12 @@ end
 
 --收到socket关闭的通知
 function SOCKET.close(fd)
-    GateMgr.CloseConnection(fd, "SOCKET_CLOSE")
+    GateMgr:CloseSession(fd, "SOCKET_CLOSE")
     Logger.Info("连接关闭 fd:%d", fd)
 end
 
-function SOCKET.error(fd, msg)
-    GateMgr.CloseConnection(fd, "SOCKET_ERROR")
+function SOCKET.error(fd, _)
+    GateMgr:CloseSession(fd, "SOCKET_ERROR")
     SOCKET.close(fd)
 end
 
@@ -68,17 +72,12 @@ function SOCKET.warning(fd, size)
 end
 
 function SOCKET.data(fd, msg)
-    Logger.Debug("[SOCKET.data] 收到数据 fd:%d", fd)
-    local conn = GateMgr.GetConnection(fd)
-    if not conn then
-        return
-    end
     local ok, err, buffMsg = xpcall(ProtocolHelper.UnpackHeader, debug.traceback, msg)
     if not ok then
-        GateMgr.CloseConnection(conn.fd)
+        GateMgr:CloseFd(fd, "协议头解析失败")
         return Logger.Error("协议解析失败 err:%s", err)
     end
-    Dispatch(conn, err, buffMsg)
+    Dispatch(fd, err, buffMsg)
 end
 
 return SOCKET

@@ -117,7 +117,7 @@ function AgentMgr.KickPlayer(account, reason)
 
     -- 关闭连接
     if agentInfo.fd then
-        pcall(cluster.send, "gatenode", ".gatewatchdog", "kick_fd", agentInfo.fd, reason or "被管理员踢出")
+        pcall(cluster.send, "gatenode", ".gatewatchdog", "KickPlayer", agentInfo.fd, reason or "被管理员踢出")
     end
 
     -- 执行登出
@@ -202,7 +202,7 @@ local function OnEnterGame(account, uid)
         Logger.Warning("玩家已在其他地方登录，踢掉旧连接 account:%s", account)
         if agentInfo.fd then
             -- 通知gate关闭连接
-            ClusterHelper.CallGateNode("KickPlayer", agentInfo.fd, "顶号")
+            ClusterHelper.CallGateNode(".gatewatchdog", "KickPlayer", agentInfo.fd, "顶号")
         end
     end
     -- 重新启动agent
