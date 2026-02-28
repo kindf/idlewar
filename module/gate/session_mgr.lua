@@ -4,7 +4,7 @@ local Session = require "gate.session"
 local DEFINE = require "public.define"
 local ClusterHelper = require "public.cluster_helper"
 local STATE_TRANSITIONS = require "module.gate.session_state_machine"
-local CONN_STATE = DEFINE.CONNECTION_STATUS
+local CONN_STATE = DEFINE.CONN_STATE
 
 -- SessionManager
 local SessionManager = {
@@ -15,11 +15,11 @@ local SessionManager = {
     seqCounter = 0,
     totalCreated = 0,
     totalClosed = 0,
-    gate = nil,
+    gateMgr = nil,
 }
 
-function SessionManager:SetGate(gate)
-    self.gate = gate
+function SessionManager:SetGateMgr(gateMgr)
+    self.gateMgr = gateMgr
 end
 
 function SessionManager:GetNextSeq()
@@ -70,11 +70,13 @@ function SessionManager:Authenticate(fd, account)
         local existingSession = self.sid2Session[existingSid]
         if existingSession and existingSession:IsAlive() then
             Logger.Info("SessionManager:Authenticate account=%s 顶号 踢除旧号中", account)
-            skynet.send(self.gate, "lua", "kick", existingSession.fd)
-            -- 通知AgentMgr顶号
-            self:KickAgent(account, "new login")
-            -- 清理旧session
-            self:Close(existingSession.fd, "new login")
+            -- skynet.send(self.gate, "lua", "kick", existingSession.fd)
+            -- -- 通知AgentMgr顶号
+            -- self:KickAgent(account, "new login")
+            -- -- 清理旧session
+            -- self:Close(existingSession.fd, "new login")
+
+            self.gateMgr:KickOldConnection(existingSession)
         end
     end
 
@@ -261,6 +263,137 @@ function SessionManager:GetStats()
     end
 
     return stats
+end
+
+-- SessionManager 中的断开处理
+function SessionManager:Disconnect(fd, reason)
+    local session = self.fd2Session[fd]
+    if not session then
+        Logger.Debug("SessionManager:Disconnect no session fd=%s", fd)
+        return
+    end
+    local account = session.account
+    local sessionId = session.sessionId
+    local oldState = session.state
+    Logger.Info("SessionManager:Disconnect %s reason=%s", session:ToLogString(), reason)
+    -- 记录断开信息
+    session.disconnectTime = os.time()
+    session.disconnectReason = reason
+    -- 根据状态处理
+    if sessionId and (oldState == CONN_STATE.GAMING or oldState == CONN_STATE.AUTHED) then
+        -- 游戏中断线，进入重连等待
+        session:ChangeState(CONN_STATE.WAITING_RECONNECT, reason)
+
+        self.waitingReconnect[sessionId] = {
+            session = session,
+            timeout = os.time() + DEFINE.CONNECTION_RECONNECT_WINDOW,
+        }
+        -- 通知AgentMgr玩家断线（等待重连，不立即下线）
+        if account then
+            self:NotifyAgentDisconnect(account, sessionId, reason)
+        end
+        -- 清理fd映射，但保留其他映射
+        self.fd2Session[fd] = nil
+    else
+        -- 其他状态（未认证或已关闭），直接清理
+        if account then
+            -- 通知AgentMgr立即下线
+            self:NotifyAgentLogout(account, reason)
+        end
+        -- 清理所有映射
+        self:Close(fd, reason)
+    end
+end
+
+function SessionManager:ProcessLogout(fd, reason)
+    local session = self.fd2Session[fd]
+    if not session then
+        return
+    end
+
+    -- 清理fd映射
+    self.fd2Session[fd] = nil
+
+    local account = session:GetAccount()
+    local sessionId = session:GetSessionId()
+    -- 通知AgentMgr
+    if account then
+        self:NotifyAgentLogout(account, sessionId, reason)
+    end
+    if sessionId then
+        self.sid2Session[sessionId] = nil
+        if account and self.account2Sid[account] == sessionId then
+            self.account2Sid[account] = nil
+        end
+    end
+    self.totalClosed = self.totalClosed + 1
+end
+
+function SessionManager:ProcessDisconnect(fd, reason)
+    local session = self.fd2Session[fd]
+    if not session then
+        return
+    end
+
+    local now = os.time()
+    session:SetDisconnectTime(now)
+    session:ChangeState(CONN_STATE.WAITING_RECONNECT, reason)
+
+    self.waitingReconnect[session.sessionId] = {
+        session = session,
+        timeout = os.time() + DEFINE.CONNECTION_RECONNECT_WINDOW,
+        dissconnectTime = now,
+        reason = reason,
+    }
+    self.fd2Session[fd] = nil
+end
+
+-- 通知AgentMgr断开 玩家下线
+function SessionManager:NotifyAgentLogout(account, sessionId, reason)
+    Logger.Info("SessionManager:NotifyAgentLogout Gate 通知 agent 断开连接 account=%s sessionId=%s reason=%s", account,
+        sessionId, reason)
+    local ret, err = ClusterHelper.CallGameAgentMgr("OnPlayerLogout", account, sessionId, reason)
+    if not ret then
+        Logger.Error("SessionManager:NotifyAgentLogout Gate 通知 agent 断开连接失败 account=%s sessionId=%s reason=%s err=%s",
+            account, sessionId, reason, err)
+    end
+end
+
+-- 清理重连超时
+function SessionManager:CleanupWaitingReconnect()
+    local now = os.time()
+    local timeoutSessions = {}
+
+    for sessionId, info in pairs(self.waitingReconnect) do
+        if now > info.timeout then
+            table.insert(timeoutSessions, {
+                sessionId = sessionId,
+                session = info.session,
+                disconnectTime = info.disconnectTime,
+            })
+        end
+    end
+
+    for _, item in ipairs(timeoutSessions) do
+        local session = item.session
+        local offlineDuration = now - item.disconnectTime
+
+        Logger.Info("SessionManager:CleanupWaitingReconnect 清理超时session sessionId=%s account=%s offline=%ds",
+            item.sessionId, session.account or "nil", offlineDuration)
+
+        -- 通知AgentMgr重连超时下线
+        if session.account then
+            self:NotifyAgentLogout(session.account, item.sessionId, DEFINE.LOGOUT_REASON.RECONNECT_TIMEOUT)
+        end
+
+        -- 清理session
+        if session.account and self.account2Sid[session.account] == item.sessionId then
+            self.account2Sid[session.account] = nil
+        end
+        self.sid2Session[item.sessionId] = nil
+        self.waitingReconnect[item.sessionId] = nil
+        self.totalClosed = self.totalClosed + 1
+    end
 end
 
 return SessionManager

@@ -26,7 +26,7 @@ end
 --
 local function DispatchGame(session, protoId, msg)
     local status = session:GetState()
-    if status == DEFINE.CONNECTION_STATUS.GAMING or status == DEFINE.CONNECTION_STATUS.AUTHED then
+    if status == DEFINE.CONN_STATE.GAMING or status == DEFINE.CONN_STATE.AUTHED then
         local succ, err = ClusterHelper.TransmitMessage(session, protoId, msg)
         if not succ then
             return Logger.Error("协议转发失败 pid:%s err:%s", protoId, err)
@@ -65,7 +65,8 @@ end
 
 --收到socket关闭的通知
 function SOCKET.close(fd)
-    GateMgr:CloseSession(fd, "SOCKET_CLOSE")
+    -- GateMgr:CloseSession(fd,"SOCKET_CLOSE")
+    GateMgr:OnSocketClose(fd)
     Logger.Info("连接关闭 fd:%d", fd)
 end
 

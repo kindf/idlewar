@@ -16,6 +16,10 @@ function CMD.KickPlayer(account, reason)
     AgentMgr:KickPlayer(account, reason)
 end
 
+function CMD.OnPlayerLogout(account, sessionId, reason)
+    AgentMgr:OnPlayerLogout(account, sessionId, reason)
+end
+
 skynet.start(function()
     skynet.dispatch("lua", function(session, source, cmd, subcmd, ...)
         ServiceHelper.DispatchCmd(cmd, subcmd, ...)

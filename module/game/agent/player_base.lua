@@ -1,3 +1,11 @@
+local ServiceHelper = require "public.service_helper"
+local Logger = require "public.logger"
+local CMD = ServiceHelper.CMD
+
+function CMD.OnLogout()
+    Logger.Info("PlayerBase:OnLogout")
+end
+
 local PlayerBase = {}
 local playerData
 

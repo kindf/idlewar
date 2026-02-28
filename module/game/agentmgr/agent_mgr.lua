@@ -286,7 +286,7 @@ end
 function AgentMgr:Init()
     Logger.Info("AgentMgr initialized")
     -- 启动清理定时器
-    self.timer:Interval(50, function() self:Cleanup() end, false)
+    self.timer:Interval(10, function() self:Cleanup() end, false)
 end
 
 function AgentMgr:GetAgentByAccount(account)
@@ -365,6 +365,21 @@ function AgentMgr:CreateRole(sessionId, account, name)
         return RetCode.SYSTEM_ERROR
     end
     return RetCode.SUCCESS
+end
+
+function AgentMgr:OnPlayerLogout(account, sessionId, reason)
+    Logger.Info("AgentMgr:OnPlayerLogout account=%s sessionId=%s reason=%s", account, sessionId, reason)
+    local info = self.acc2Agent[account]
+    if not info then
+        Logger.Warning("AgentMgr:OnPlayerLogout 账号不存在 account=%s", account)
+        return
+    end
+    local ret, err = skynet.call(info.agentAddr, "lua", "OnLogout", reason)
+    if not ret then
+        Logger.Error("AgentMgr:OnPlayerLogout OnLogout失败 account=%s err=%s", account, err)
+        return
+    end
+    self:ScheduleRemove(info.agentAddr, reason)
 end
 
 ------------------------------------------------- 客户端请求 --------------------------------------------------------------------------

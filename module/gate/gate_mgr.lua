@@ -9,12 +9,13 @@ local ClusterHelper = require "public.cluster_helper"
 local SessionMgr = require "gate.session_mgr"
 local TokenMgr = require "gate.token_mgr"
 local Timer = require "public.timer"
-local CONN_STATE = DEFINE.CONNECTION_STATUS
+local CONN_STATE = DEFINE.CONN_STATE
 
 local GateMgr = {
     gate = nil,
     timer = Timer.New(),
     cleanupTimerId = nil,
+    sessionCleanupTimerId = nil,
 }
 
 function GateMgr:Init(ip, port)
@@ -26,7 +27,8 @@ function GateMgr:Init(ip, port)
 
     ProtocolHelper.RegisterProtocol()
     self.cleanupTimerId = self.timer:Interval(DEFINE.SESSION_CLEANUP_INTERVAL, function() GateMgr:CleanupTimer() end, false)
-    SessionMgr:SetGate(self.gate)
+    self.sessionCleanupTimerId = self.timer:Interval(60, function() SessionMgr:CleanupWaitingReconnect() end, false)
+    SessionMgr:SetGateMgr(self)
     Logger.Info("GateMgr 初始化成功 on %s:%d", ip, port)
 end
 
@@ -49,14 +51,13 @@ function GateMgr:GetSession(fd)
     return SessionMgr:GetByFd(fd)
 end
 
--- fd关闭回调
-function GateMgr:CloseSession(fd, reason)
-    SessionMgr:Close(fd, reason)
-end
-
 -- 主动断开
-function GateMgr:CloseFd(fd)
+function GateMgr:CloseSocket(fd)
+    if not fd then
+        return
+    end
     skynet.call(self.gate, "lua", "kick", fd)
+    Logger.Info("GateMgr.CloseSocket 调用 gate.kick 关闭连接 fd=%s", fd)
 end
 
 function GateMgr:SendMessage(fd, msg)
@@ -192,6 +193,70 @@ function GateMgr.DebugGetWaiting()
         table.insert(list, string.format("%s timeout=%d", sid, info.timeout))
     end
     return list
+end
+
+-- 连接断开
+function GateMgr:OnSocketClose(fd)
+    Logger.Info("GateMgr.OnSocketClose 套接字关闭 fd=%s", fd)
+    local session = SessionMgr:GetByFd(fd)
+    -- 主动断开连接时会清空 session, 所以回调时 session 为空
+    if not session then
+        return
+    end
+    -- session 不空 表示对端关闭连接
+    SessionMgr:ProcessDisconnect(fd, DEFINE.LOGOUT_REASON.CLIENT_CLOSED)
+end
+
+-- 客户端协议主动下线
+function GateMgr:HandleLogout(fd, _, msg)
+    local session = SessionMgr:GetByFd(fd)
+    if not session then
+        return
+    end
+
+    -- 先响应再处理状态
+    local resp = { retCode = RetCode.SUCCESS }
+    local pack = ProtocolHelper.Encode("login.s2c_logout", resp)
+    GateMgr:SendMessage(fd, pack)
+
+    -- 关闭socket连接
+    GateMgr:CloseSocket(fd)
+    SessionMgr:ProcessLogout(fd)
+end
+
+-- socket 错误
+function GateMgr:OnSocketError(fd, err)
+    Logger.Warning("GateMgr.OnSocketError 套接字错误 fd=%s err=%s", fd, err)
+    local session = SessionMgr:GetByFd(fd)
+    if not session then
+        return
+    end
+    -- 关闭socket连接
+    GateMgr:CloseSocket(fd)
+    -- 直接断开 不能重连
+    SessionMgr:ProcessLogout(fd, DEFINE.LOGOUT_REASON.SOCKET_ERROR)
+end
+
+-- 顶号处理
+function GateMgr:KickOldConnection(oldSession)
+    Logger.Warning("GateMgr.KickOldConnection 断开旧连接 sessionId=%s", oldSession.sessionId)
+    -- 关闭socket连接
+    GateMgr:CloseSocket(oldSession.fd)
+    SessionMgr:ProcessLogout(oldSession.fd, DEFINE.LOGOUT_REASON.NEW_LOGIN)
+end
+
+-- 系统踢人
+function GateMgr:SystemKickPlayer(account, reason)
+    Logger.Warning("GateMgr.SystemKickPlayer 踢出玩家 account=%s reason=%s", account, reason)
+    local session = SessionMgr:GetByAccount(account)
+    if not session then
+        return
+    end
+
+    local fd = session:GetFd()
+    -- 关闭socket连接
+    GateMgr:CloseSocket(fd)
+    SessionMgr:ProcessLogout(fd, reason)
 end
 
 return GateMgr

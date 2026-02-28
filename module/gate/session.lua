@@ -1,7 +1,7 @@
 local Logger = require("public.logger")
 local STATE_TRANSITIONS = require("module.gate.session_state_machine")
 local DEFINE = require("public.define")
-local CONN_STATE = DEFINE.CONNECTION_STATUS
+local CONN_STATE = DEFINE.CONN_STATE
 -- Session类
 local Session = {}
 Session.__index = Session
@@ -114,6 +114,10 @@ end
 
 function Session:SetLoginToken(token)
     self.loginToken = token
+end
+
+function Session:SetDisconnectTime(ts)
+    self.disconnectTime = ts
 end
 
 function Session:ToLogString()
